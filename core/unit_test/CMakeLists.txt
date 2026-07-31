@@ -40,6 +40,7 @@ kokkos_include_directories(${KOKKOS_SOURCE_DIR}/core/unit_test/category_files)
 
 set(COMPILE_ONLY_SOURCES
     TestArray.cpp
+    TestStandardLayoutTuple.cpp
     TestCreateMirror.cpp
     TestDetectionIdiom.cpp
     TestBitManipulation.cpp
@@ -750,7 +751,15 @@ if(Kokkos_ENABLE_CUDA)
   )
 
   if(KOKKOS_ENABLE_CUDA_TILE)
-    kokkos_add_executable_and_test(CoreUnitTest_CudaTile SOURCES UnitTestMainInit.cpp cuda/TestCuda_Tile.cpp)
+    kokkos_add_executable_and_test(
+      CoreUnitTest_CudaTile
+      SOURCES
+      UnitTestMainInit.cpp
+      cuda/TestCuda_Tile.cpp
+      cuda/TestCuda_StandardLayoutTuple.cpp
+      cuda/TestCuda_CuTile_Stream.cpp
+      cuda/TestCuda_CuTile_ParallelFor.cpp
+    )
   endif()
 endif()
 

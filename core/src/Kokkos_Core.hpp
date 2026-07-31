@@ -44,6 +44,7 @@
 #include <Kokkos_Swap.hpp>
 #include <Kokkos_MemoryPool.hpp>
 #include <Kokkos_Array.hpp>
+#include <Kokkos_StandardLayoutTuple.hpp>
 #include <Kokkos_View.hpp>
 #include <Kokkos_Iterator.hpp>
 #include <Kokkos_Vectorization.hpp>
