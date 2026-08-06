@@ -21,6 +21,7 @@
 #include <CuTile/Kokkos_CuTile_Instance.hpp>
 #include <CuTile/Kokkos_CuTile_KernelLaunch.hpp>
 #include <CuTile/Kokkos_CuTile_Parallel_Range.hpp>
+#include <CuTile/Kokkos_CuTile_TensorSpan.hpp>
 #endif
 #endif
 

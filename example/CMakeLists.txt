@@ -12,3 +12,6 @@ if(_DEVICE_PARALLEL STREQUAL "NoTypeDefined"
   kokkos_add_example_directories(relocatable_function)
 endif()
 kokkos_add_example_directories(tutorial)
+if(KOKKOS_ENABLE_CUDA_TILE)
+  kokkos_add_example_directories(cutile_gemm)
+endif()
