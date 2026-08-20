@@ -55,14 +55,14 @@ __tile__ __host__ __device__ auto make_tensor_span_strided(T* ptr,
 }
 
 template <class ViewType, std::size_t... Is>
-__host__ __device__ auto make_cutile_extents(ViewType const& view,
-                                            std::index_sequence<Is...>) {
+__tile__ __host__ __device__ auto make_cutile_extents(
+    ViewType const& view, std::index_sequence<Is...>) {
   return cuda::tiles::extents{to_cutile_index(view.extent(Is))...};
 }
 
 template <class ViewType, std::size_t... Is>
-__host__ __device__ auto make_cutile_strides(ViewType const& view,
-                                            std::index_sequence<Is...>) {
+__tile__ __host__ __device__ auto make_cutile_strides(
+    ViewType const& view, std::index_sequence<Is...>) {
   return cuda::tiles::extents{to_cutile_index(view.stride(Is))...};
 }
 
@@ -100,15 +100,17 @@ __tile__ __host__ __device__ auto make_tensor_span(T* ptr, LayoutStride,
 }
 
 // ---------------------------------------------------------------------------
-// Host/device View overload.
+// View overload, directly callable from __tile__ kernels.
 //
-// Not marked __tile__: View accessors are only __host__ __device__. Use this
-// on the host (or in ordinary device code). For __tile__ kernels, extract
-// pointer + extents on the host and call the overloads above.
+// The View functions this depends on (default/copy/move construction,
+// destruction, extent(), stride(), data()) are marked __tile__ so a View
+// held by value in a trivially copyable functor can be used to build a
+// tensor_span from inside the tile kernel body, without pre-extracting
+// pointer + extents on the host.
 // ---------------------------------------------------------------------------
 
 template <class ViewType>
-__host__ __device__ auto make_tensor_span(ViewType const& view) {
+__tile__ __host__ __device__ auto make_tensor_span(ViewType const& view) {
   static_assert(is_view_v<ViewType>,
                 "Kokkos::make_tensor_span requires a Kokkos::View");
   static_assert(Impl::is_cutile_tensor_span_layout_v<ViewType>,

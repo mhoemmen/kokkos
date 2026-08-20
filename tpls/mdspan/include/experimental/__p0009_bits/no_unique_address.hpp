@@ -18,6 +18,18 @@
 #include "macros.hpp"
 #include "trait_backports.hpp"
 
+// Kokkos addition: layout_stride::mapping::extents()/stride() (used by
+// Kokkos::View::extent()/stride() from tile kernels) route through this
+// storage when MDSPAN_IMPL_USE_ATTRIBUTE_NO_UNIQUE_ADDRESS isn't set; it
+// must also be __tile__-callable when CUDA Tile support is enabled. This
+// file is self-contained, so it's safe to mark as a whole.
+#if defined(KOKKOS_ENABLE_CUDA_TILE)
+#undef MDSPAN_INLINE_FUNCTION
+#define MDSPAN_INLINE_FUNCTION __tile__ MDSPAN_IMPL_HOST_DEVICE inline
+#undef MDSPAN_FORCE_INLINE_FUNCTION
+#define MDSPAN_FORCE_INLINE_FUNCTION __tile__ MDSPAN_IMPL_HOST_DEVICE inline
+#endif
+
 namespace MDSPAN_IMPL_STANDARD_NAMESPACE {
 namespace detail {
 
@@ -95,3 +107,13 @@ struct no_unique_address_emulation<
 
 } // end namespace detail
 } // end namespace MDSPAN_IMPL_STANDARD_NAMESPACE
+
+// Kokkos addition: restore MDSPAN_INLINE_FUNCTION/MDSPAN_FORCE_INLINE_FUNCTION
+// to their file-independent (non-__tile__) definitions; see the matching
+// #undef above.
+#if defined(KOKKOS_ENABLE_CUDA_TILE)
+#undef MDSPAN_INLINE_FUNCTION
+#define MDSPAN_INLINE_FUNCTION inline MDSPAN_IMPL_HOST_DEVICE
+#undef MDSPAN_FORCE_INLINE_FUNCTION
+#define MDSPAN_FORCE_INLINE_FUNCTION __attribute__((always_inline)) MDSPAN_IMPL_HOST_DEVICE
+#endif

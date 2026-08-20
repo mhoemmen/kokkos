@@ -58,9 +58,13 @@ class ParallelFor<FunctorType, Kokkos::RangePolicy<Traits...>, Kokkos::CuTile> {
   using WorkTag = typename Policy::work_tag;
   using Driver  = CuTileRangeParallelForDriver<FunctorType, Member, WorkTag>;
 
-  static_assert(std::is_trivially_copyable_v<Driver>,
-                "CuTile RangePolicy parallel_for requires a trivially "
-                "copyable functor");
+  // Kokkos::View is never std::is_trivially_copyable under nvcc (see
+  // Kokkos_CuTile_KernelLaunch.hpp), so functors holding Views can only
+  // satisfy the weaker standard-layout property that this raw
+  // cudaMemcpyAsync-based transfer actually depends on.
+  static_assert(std::is_standard_layout_v<Driver>,
+                "CuTile RangePolicy parallel_for requires a standard "
+                "layout functor");
 
   const FunctorType m_functor;
   const Policy m_policy;

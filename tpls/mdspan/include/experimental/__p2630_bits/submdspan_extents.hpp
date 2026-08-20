@@ -120,6 +120,7 @@ MDSPAN_TEMPLATE_REQUIRES(
   class IdxT1, class IdxT2,
   /* requires */ (index_pair_like<std::tuple<IdxT1, IdxT2>, size_t>::value)
   )
+MDSPAN_INLINE_FUNCTION
 constexpr auto first_of(const std::tuple<IdxT1, IdxT2>& i) {
   return get<0>(i);
 }

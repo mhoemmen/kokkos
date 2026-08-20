@@ -25,6 +25,17 @@
 #include "../__p0009_bits/layout_stride.hpp"
 #include "../__p0009_bits/utility.hpp"
 
+// Kokkos addition: Kokkos::View's default LayoutLeft/LayoutRight mapping
+// type is actually layout_left_padded/layout_right_padded (this file), not
+// plain layout_left/layout_right. Its extents()/stride() (used by
+// Kokkos::View::extent()/stride() from tile kernels) must be
+// __tile__-callable when CUDA Tile support is enabled -- see the narrowly
+// scoped MDSPAN_INLINE_FUNCTION redefinitions around extents()/stride() in
+// each `mapping` class below. Constructors and submdspan support are left
+// untouched: constructors do real precondition-check work that isn't
+// __tile__-safe, and submdspan pulls in slice-handling helpers that aren't
+// either.
+
 namespace MDSPAN_IMPL_STANDARD_NAMESPACE {
 namespace MDSPAN_IMPL_PROPOSED_NAMESPACE {
 namespace detail {
@@ -539,10 +550,30 @@ public:
             exts, padded_stride.value(0)));
   }
 
+  // Kokkos addition: extents()/stride() (used by Kokkos::View::extent()/
+  // stride() from tile kernels) must be __tile__-callable when CUDA Tile
+  // support is enabled. Scope this narrowly to these functions -- not
+  // constructors (which do real precondition-check work) or
+  // submdspan_mapping_impl below (which pulls in submdspan's slice-handling
+  // helpers) -- neither of which is __tile__-safe.
+#if defined(KOKKOS_ENABLE_CUDA_TILE)
+#undef MDSPAN_INLINE_FUNCTION
+#define MDSPAN_INLINE_FUNCTION __tile__ MDSPAN_IMPL_HOST_DEVICE inline
+#endif
+
   MDSPAN_INLINE_FUNCTION constexpr const extents_type &
   extents() const noexcept {
     return exts;
   }
+
+  // Kokkos addition: restore MDSPAN_INLINE_FUNCTION for everything between
+  // extents() and stride() -- required_span_size()/strides()/operator()/
+  // is_*() aren't needed by Kokkos::View::extent()/stride() and
+  // operator()'s compute_offset() helper isn't __tile__-safe.
+#if defined(KOKKOS_ENABLE_CUDA_TILE)
+#undef MDSPAN_INLINE_FUNCTION
+#define MDSPAN_INLINE_FUNCTION inline MDSPAN_IMPL_HOST_DEVICE
+#endif
 
   constexpr std::array<index_type, extents_type::rank()>
   strides() const noexcept {
@@ -626,6 +657,13 @@ public:
     return true;
   }
 
+  // Kokkos addition: re-enable __tile__ for stride(); see the matching
+  // restore above (after extents()) and below (after stride()).
+#if defined(KOKKOS_ENABLE_CUDA_TILE)
+#undef MDSPAN_INLINE_FUNCTION
+#define MDSPAN_INLINE_FUNCTION __tile__ MDSPAN_IMPL_HOST_DEVICE inline
+#endif
+
   MDSPAN_INLINE_FUNCTION
   constexpr index_type stride(rank_type r) const noexcept {
     assert(r < extents_type::rank());
@@ -638,6 +676,13 @@ public:
 
     return value;
   }
+
+  // Kokkos addition: restore MDSPAN_INLINE_FUNCTION; see the matching
+  // #undef above.
+#if defined(KOKKOS_ENABLE_CUDA_TILE)
+#undef MDSPAN_INLINE_FUNCTION
+#define MDSPAN_INLINE_FUNCTION inline MDSPAN_IMPL_HOST_DEVICE
+#endif
 
   /**
    * Equality operator between `layout_left_padded`s
@@ -933,10 +978,30 @@ public:
             exts, padded_stride.value(0)));
   }
 
+  // Kokkos addition: extents()/stride() (used by Kokkos::View::extent()/
+  // stride() from tile kernels) must be __tile__-callable when CUDA Tile
+  // support is enabled. Scope this narrowly to these functions -- not
+  // constructors (which do real precondition-check work) or
+  // submdspan_mapping_impl below (which pulls in submdspan's slice-handling
+  // helpers) -- neither of which is __tile__-safe.
+#if defined(KOKKOS_ENABLE_CUDA_TILE)
+#undef MDSPAN_INLINE_FUNCTION
+#define MDSPAN_INLINE_FUNCTION __tile__ MDSPAN_IMPL_HOST_DEVICE inline
+#endif
+
   MDSPAN_INLINE_FUNCTION constexpr const extents_type &
   extents() const noexcept {
     return exts;
   }
+
+  // Kokkos addition: restore MDSPAN_INLINE_FUNCTION for everything between
+  // extents() and stride() -- required_span_size()/strides()/operator()/
+  // is_*() aren't needed by Kokkos::View::extent()/stride() and
+  // operator()'s compute_offset() helper isn't __tile__-safe.
+#if defined(KOKKOS_ENABLE_CUDA_TILE)
+#undef MDSPAN_INLINE_FUNCTION
+#define MDSPAN_INLINE_FUNCTION inline MDSPAN_IMPL_HOST_DEVICE
+#endif
 
   constexpr std::array<index_type, extents_type::rank()>
   strides() const noexcept {
@@ -1015,6 +1080,13 @@ public:
     return true;
   }
 
+  // Kokkos addition: re-enable __tile__ for stride(); see the matching
+  // restore above (after extents()) and below (after stride()).
+#if defined(KOKKOS_ENABLE_CUDA_TILE)
+#undef MDSPAN_INLINE_FUNCTION
+#define MDSPAN_INLINE_FUNCTION __tile__ MDSPAN_IMPL_HOST_DEVICE inline
+#endif
+
   MDSPAN_INLINE_FUNCTION constexpr index_type
   stride(rank_type r) const noexcept {
     assert(r < extents_type::rank());
@@ -1027,6 +1099,13 @@ public:
 
     return value;
   }
+
+  // Kokkos addition: restore MDSPAN_INLINE_FUNCTION; see the matching
+  // #undef above.
+#if defined(KOKKOS_ENABLE_CUDA_TILE)
+#undef MDSPAN_INLINE_FUNCTION
+#define MDSPAN_INLINE_FUNCTION inline MDSPAN_IMPL_HOST_DEVICE
+#endif
 
   /**
    * Equality operator between `layout_right_padded`s

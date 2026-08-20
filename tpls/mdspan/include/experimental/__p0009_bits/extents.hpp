@@ -27,6 +27,19 @@
 #include <cassert>
 #include <cinttypes>
 
+// Kokkos addition: when CUDA Tile support is enabled, extents' observer
+// functions (rank(), extent(), etc., used by Kokkos::View::extent()/
+// stride() from tile kernels) must also be __tile__-callable. Scope this to
+// just this file -- redefine MDSPAN_INLINE_FUNCTION here and restore the
+// original definition at the end of the file -- rather than making the
+// whole mdspan TPL (mdspan<>'s own special members, submdspan, ...)
+// __tile__, which drags in Kokkos's reference-counted accessor machinery
+// that cannot be __tile__-callable.
+#if defined(KOKKOS_ENABLE_CUDA_TILE)
+#undef MDSPAN_INLINE_FUNCTION
+#define MDSPAN_INLINE_FUNCTION __tile__ MDSPAN_IMPL_HOST_DEVICE inline
+#endif
+
 namespace MDSPAN_IMPL_STANDARD_NAMESPACE {
 namespace detail {
 
@@ -541,6 +554,15 @@ public:
             std::integral_constant<size_t, 0>(),
             std::integral_constant<size_t, 0>(), other)) {}
 
+  // Kokkos addition: extents::operator==/!= aren't needed by
+  // Kokkos::View::extent()/stride() and route through rankwise_equal() in
+  // utility.hpp, which isn't __tile__-safe -- restore MDSPAN_INLINE_FUNCTION
+  // here and re-enable it after the class closes.
+#if defined(KOKKOS_ENABLE_CUDA_TILE)
+#undef MDSPAN_INLINE_FUNCTION
+#define MDSPAN_INLINE_FUNCTION inline MDSPAN_IMPL_HOST_DEVICE
+#endif
+
   // Comparison operator
   template <class OtherIndexType, size_t... OtherExtents>
   MDSPAN_INLINE_FUNCTION friend constexpr bool
@@ -560,6 +582,11 @@ public:
   }
 #endif
 };
+
+#if defined(KOKKOS_ENABLE_CUDA_TILE)
+#undef MDSPAN_INLINE_FUNCTION
+#define MDSPAN_INLINE_FUNCTION __tile__ MDSPAN_IMPL_HOST_DEVICE inline
+#endif
 
 // Recursive helper classes to implement dextents alias for extents
 namespace detail {
@@ -694,3 +721,10 @@ check_all_indices(const extents<ExtentsIndexType, Exts...>& exts,
 
 } // namespace detail
 } // namespace MDSPAN_IMPL_STANDARD_NAMESPACE
+
+// Kokkos addition: restore MDSPAN_INLINE_FUNCTION to its file-independent
+// (non-__tile__) definition; see the matching #undef above.
+#if defined(KOKKOS_ENABLE_CUDA_TILE)
+#undef MDSPAN_INLINE_FUNCTION
+#define MDSPAN_INLINE_FUNCTION inline MDSPAN_IMPL_HOST_DEVICE
+#endif

@@ -397,6 +397,15 @@
 #endif
 
 //----------------------------------------------------------------------------
+// KOKKOS_INLINE_TILE_FUNCTION: like KOKKOS_INLINE_FUNCTION, but additionally
+// callable from cuTile (__tile__) kernels when CUDA Tile support is enabled.
+#if defined(KOKKOS_ENABLE_CUDA_TILE)
+#define KOKKOS_INLINE_TILE_FUNCTION __tile__ __device__ __host__ inline
+#else
+#define KOKKOS_INLINE_TILE_FUNCTION KOKKOS_INLINE_FUNCTION
+#endif
+
+//----------------------------------------------------------------------------
 // Define empty macro for restrict if necessary:
 
 #if !defined(KOKKOS_RESTRICT)

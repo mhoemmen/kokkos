@@ -329,7 +329,7 @@ class ReferenceCountedDataHandle {
       const ReferenceCountedDataHandle<OtherElementType, OtherSpace>& other)
       : m_tracker(other.m_tracker), m_handle(other.m_handle) {}
 
-  KOKKOS_FUNCTION
+  KOKKOS_INLINE_TILE_FUNCTION
   pointer get() const noexcept { return m_handle; }
   KOKKOS_FUNCTION
   explicit operator pointer() const noexcept { return m_handle; }
@@ -367,7 +367,7 @@ class ReferenceCountedDataHandle {
 
 // Helper function used by View to extract raw pointer from data_handle
 template <class ElementType, class MemorySpace>
-KOKKOS_INLINE_FUNCTION constexpr auto ptr_from_data_handle(
+KOKKOS_INLINE_TILE_FUNCTION constexpr auto ptr_from_data_handle(
     const ReferenceCountedDataHandle<ElementType, MemorySpace>& handle) {
   return handle.get();
 }

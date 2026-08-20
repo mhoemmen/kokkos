@@ -139,6 +139,14 @@ struct layout_stride {
     using base_t = detail::no_unique_address_emulation<member_pair_t>;
 #endif
 
+    // Kokkos addition: strides_storage() is called by stride()/extents()/
+    // required_span_size(), which must be __tile__-callable when CUDA Tile
+    // support is enabled -- see the matching restore below.
+#if defined(KOKKOS_ENABLE_CUDA_TILE)
+#undef MDSPAN_FORCE_INLINE_FUNCTION
+#define MDSPAN_FORCE_INLINE_FUNCTION __tile__ MDSPAN_IMPL_HOST_DEVICE inline
+#endif
+
     MDSPAN_FORCE_INLINE_FUNCTION constexpr strides_storage_t const&
     strides_storage() const noexcept {
 #if defined(MDSPAN_IMPL_USE_ATTRIBUTE_NO_UNIQUE_ADDRESS)
@@ -155,6 +163,12 @@ struct layout_stride {
       return this->base_t::ref().second();
 #endif
     }
+
+#if defined(KOKKOS_ENABLE_CUDA_TILE)
+#undef MDSPAN_FORCE_INLINE_FUNCTION
+#define MDSPAN_FORCE_INLINE_FUNCTION \
+  __attribute__((always_inline)) MDSPAN_IMPL_HOST_DEVICE
+#endif
 
     template<class SizeType, size_t ... Ep, size_t ... Idx>
     MDSPAN_IMPL_HOST_DEVICE
@@ -470,6 +484,16 @@ struct layout_stride {
     MDSPAN_INLINE_FUNCTION_DEFAULTED MDSPAN_IMPL_CONSTEXPR_14_DEFAULTED
     mapping& operator=(mapping const&) noexcept = default;
 
+    // Kokkos addition: extents()/stride() (used by Kokkos::View::extent()/
+    // stride() from tile kernels) must be __tile__-callable when CUDA Tile
+    // support is enabled. Scope this narrowly to these functions -- not the
+    // whole file -- so submdspan_mapping_impl below (which pulls in
+    // submdspan's slice-handling helpers) stays untouched.
+#if defined(KOKKOS_ENABLE_CUDA_TILE)
+#undef MDSPAN_INLINE_FUNCTION
+#define MDSPAN_INLINE_FUNCTION __tile__ MDSPAN_IMPL_HOST_DEVICE inline
+#endif
+
     MDSPAN_INLINE_FUNCTION constexpr const extents_type& extents() const noexcept {
 #if defined(MDSPAN_IMPL_USE_ATTRIBUTE_NO_UNIQUE_ADDRESS)
       return m_members.first();
@@ -477,6 +501,15 @@ struct layout_stride {
       return this->base_t::ref().first();
 #endif
     }
+
+    // Kokkos addition: restore MDSPAN_INLINE_FUNCTION for everything between
+    // extents() and stride() -- not needed by Kokkos::View::extent()/
+    // stride(), and required_span_size()/is_exhaustive()/etc. aren't
+    // __tile__-safe (get_size() below isn't marked).
+#if defined(KOKKOS_ENABLE_CUDA_TILE)
+#undef MDSPAN_INLINE_FUNCTION
+#define MDSPAN_INLINE_FUNCTION inline MDSPAN_IMPL_HOST_DEVICE
+#endif
 
     MDSPAN_INLINE_FUNCTION
     constexpr std::array< index_type, extents_type::rank() > strides() const noexcept {
@@ -568,10 +601,24 @@ struct layout_stride {
     MDSPAN_INLINE_FUNCTION static constexpr bool is_strided() noexcept { return true; }
 
 
+    // Kokkos addition: re-enable __tile__ for stride(); see the matching
+    // restore above (after extents()) and below (after stride()).
+#if defined(KOKKOS_ENABLE_CUDA_TILE)
+#undef MDSPAN_INLINE_FUNCTION
+#define MDSPAN_INLINE_FUNCTION __tile__ MDSPAN_IMPL_HOST_DEVICE inline
+#endif
+
     MDSPAN_INLINE_FUNCTION
     constexpr index_type stride(rank_type r) const noexcept {
       return strides_storage()[r];
     }
+
+    // Kokkos addition: restore MDSPAN_INLINE_FUNCTION; see the matching
+    // #undef above.
+#if defined(KOKKOS_ENABLE_CUDA_TILE)
+#undef MDSPAN_INLINE_FUNCTION
+#define MDSPAN_INLINE_FUNCTION inline MDSPAN_IMPL_HOST_DEVICE
+#endif
 
 #if !(defined(MDSPAN_IMPL_USE_CONCEPTS) && MDSPAN_HAS_CXX_20)
     MDSPAN_TEMPLATE_REQUIRES(

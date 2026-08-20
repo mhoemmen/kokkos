@@ -20,14 +20,14 @@ static_assert(false,
 namespace Kokkos {
 namespace detail {
 template <class IdxT1, class IdxT2>
-KOKKOS_INLINE_FUNCTION constexpr auto first_of(
+KOKKOS_INLINE_TILE_FUNCTION constexpr auto first_of(
     const pair<IdxT1, IdxT2> &slice) {
   return slice.first;
 }
 template <class IdxT1, class IdxT2, class Extents, size_t k>
-KOKKOS_INLINE_FUNCTION constexpr auto last_of(std::integral_constant<size_t, k>,
-                                              const Extents &,
-                                              const pair<IdxT1, IdxT2> &slice) {
+KOKKOS_INLINE_TILE_FUNCTION constexpr auto last_of(
+    std::integral_constant<size_t, k>, const Extents &,
+    const pair<IdxT1, IdxT2> &slice) {
   return slice.second;
 }
 

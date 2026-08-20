@@ -204,7 +204,7 @@ struct BasicViewFromTraits<ElementType, extents<IndexType, Extents...>,
 // An overload for our reference counted data handle is next to its
 // implementation. This one covers Unmanaged views with raw pointers.
 template <class HandleType>
-KOKKOS_INLINE_FUNCTION constexpr auto ptr_from_data_handle(
+KOKKOS_INLINE_TILE_FUNCTION constexpr auto ptr_from_data_handle(
     const HandleType& handle) {
   // This should only be internally invoked in Kokkos with raw pointers.
   static_assert(std::is_pointer_v<HandleType>);
@@ -482,7 +482,7 @@ class View
   KOKKOS_INLINE_FUNCTION constexpr bool is_allocated() const {
     return data() != nullptr;
   }
-  KOKKOS_INLINE_FUNCTION constexpr pointer_type data() const {
+  KOKKOS_INLINE_TILE_FUNCTION constexpr pointer_type data() const {
     return Impl::ptr_from_data_handle(base_t::data_handle());
   }
 
@@ -832,7 +832,11 @@ class View
     }
   }
 #else
+#if defined(KOKKOS_ENABLE_CUDA_TILE)
+  KOKKOS_INLINE_TILE_FUNCTION
+#else
   KOKKOS_DEFAULTED_FUNCTION
+#endif
   View(const View&)
     requires(!has_hooks_policy)
   = default;
@@ -853,7 +857,11 @@ class View
     }
   }
 #else
+#if defined(KOKKOS_ENABLE_CUDA_TILE)
+  KOKKOS_INLINE_TILE_FUNCTION
+#else
   KOKKOS_DEFAULTED_FUNCTION
+#endif
   View(View&&)
     requires(!has_hooks_policy)
   = default;
@@ -1553,7 +1561,7 @@ class View
     }
   }
 
-  KOKKOS_FUNCTION
+  KOKKOS_INLINE_TILE_FUNCTION
   constexpr typename base_t::index_type extent(size_t r) const noexcept {
 #ifdef KOKKOS_ENABLE_DEPRECATED_CODE_5
     // casting to int to avoid warning for pointless comparison of unsigned
