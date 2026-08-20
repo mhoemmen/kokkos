@@ -148,7 +148,7 @@ class BasicView {
   using memory_space     = typename accessor_type::memory_space;
   using execution_space  = typename memory_space::execution_space;
 
-  KOKKOS_INLINE_TILE_FUNCTION static constexpr rank_type rank() noexcept {
+  KOKKOS_TILE_FUNCTION static constexpr rank_type rank() noexcept {
     return extents_type::rank();
   }
   KOKKOS_FUNCTION static constexpr rank_type rank_dynamic() noexcept {
@@ -162,7 +162,7 @@ class BasicView {
 #endif
     return extents_type::static_extent(r);
   }
-  KOKKOS_INLINE_TILE_FUNCTION constexpr index_type extent(
+  KOKKOS_TILE_FUNCTION constexpr index_type extent(
       rank_type r) const noexcept {
 #ifndef KOKKOS_ENABLE_DEPRECATED_CODE_5
     // Need to cast in order to avoid warning for rank zero about pointless
@@ -761,7 +761,7 @@ class BasicView {
   KOKKOS_FUNCTION constexpr const extents_type &extents() const noexcept {
     return m_map.extents();
   }
-  KOKKOS_INLINE_TILE_FUNCTION constexpr const data_handle_type &data_handle()
+  KOKKOS_TILE_FUNCTION constexpr const data_handle_type &data_handle()
       const noexcept {
     return m_ptr;
   }
@@ -789,7 +789,7 @@ class BasicView {
   KOKKOS_FUNCTION constexpr bool is_strided() const {
     return m_map.is_strided();
   }
-  KOKKOS_INLINE_TILE_FUNCTION constexpr index_type stride(rank_type r) const {
+  KOKKOS_TILE_FUNCTION constexpr index_type stride(rank_type r) const {
     // Need to cast in order to avoid warning for rank zero about pointless
     // comparison to zero
     KOKKOS_ASSERT(static_cast<int>(r) < static_cast<int>(rank()));

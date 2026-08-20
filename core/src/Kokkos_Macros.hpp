@@ -405,6 +405,15 @@
 #define KOKKOS_INLINE_TILE_FUNCTION KOKKOS_INLINE_FUNCTION
 #endif
 
+// KOKKOS_TILE_FUNCTION: like KOKKOS_INLINE_TILE_FUNCTION, but without the
+// "inline" specifier (analogous to how KOKKOS_FUNCTION relates to
+// KOKKOS_INLINE_FUNCTION).
+#if defined(KOKKOS_ENABLE_CUDA_TILE)
+#define KOKKOS_TILE_FUNCTION __tile__ __device__ __host__
+#else
+#define KOKKOS_TILE_FUNCTION KOKKOS_FUNCTION
+#endif
+
 //----------------------------------------------------------------------------
 // Define empty macro for restrict if necessary:
 

@@ -123,7 +123,7 @@ class SharedAllocationRecord<void, void> {
 #pragma push
 #pragma diag_suppress implicit_return_from_non_void_function
 #endif
-  static KOKKOS_FUNCTION int tracking_enabled() {
+  static KOKKOS_TILE_FUNCTION int tracking_enabled() {
     KOKKOS_IF_ON_HOST(return t_tracking_enabled;)
     KOKKOS_IF_ON_DEVICE(return 0;)
     KOKKOS_IMPL_UNREACHABLE();
@@ -555,6 +555,18 @@ union SharedAllocationTracker {
 #define KOKKOS_IMPL_BRANCH_PROB
 #endif
 
+// SharedAllocationTracker's constructors and destructor only touch the
+// refcount on the host (see KOKKOS_IF_ON_HOST above); on device/tile they are
+// no-ops.  Make them callable from cuTile (__tile__) kernels as well so that
+// types holding a SharedAllocationTracker (e.g. ReferenceCountedDataHandle)
+// can be tile-constructible.
+#if defined(KOKKOS_ENABLE_CUDA_TILE)
+#define KOKKOS_IMPL_SHARED_ALLOC_TRACKER_FUNCTION \
+  __tile__ KOKKOS_FORCEINLINE_FUNCTION
+#else
+#define KOKKOS_IMPL_SHARED_ALLOC_TRACKER_FUNCTION KOKKOS_FORCEINLINE_FUNCTION
+#endif
+
 #define KOKKOS_IMPL_SHARED_ALLOCATION_TRACKER_INCREMENT \
   KOKKOS_IF_ON_HOST(                                    \
       (if (!(m_record_bits & DO_NOT_DEREF_FLAG))        \
@@ -622,11 +634,11 @@ union SharedAllocationTracker {
   }
 
   // Copy:
-  KOKKOS_FORCEINLINE_FUNCTION
+  KOKKOS_IMPL_SHARED_ALLOC_TRACKER_FUNCTION
   // NOLINTNEXTLINE(bugprone-exception-escape)
   ~SharedAllocationTracker(){KOKKOS_IMPL_SHARED_ALLOCATION_TRACKER_DECREMENT}
 
-  KOKKOS_FORCEINLINE_FUNCTION
+  KOKKOS_IMPL_SHARED_ALLOC_TRACKER_FUNCTION
 #if defined(KOKKOS_COMPILER_NVCC) || !defined(KOKKOS_COMPILER_GNU) || \
     (KOKKOS_COMPILER_GNU < 1220) || (KOKKOS_COMPILER_GNU > 1250)
       // FIXME_GCC: The ViewSupport test fails with gcc 12.2-12.5
@@ -642,7 +654,7 @@ union SharedAllocationTracker {
 
   // Move:
 
-  KOKKOS_FORCEINLINE_FUNCTION
+  KOKKOS_IMPL_SHARED_ALLOC_TRACKER_FUNCTION
   SharedAllocationTracker(SharedAllocationTracker&& rhs) noexcept
       : m_record_bits(rhs.m_record_bits) {
     rhs.m_record_bits = DO_NOT_DEREF_FLAG;
@@ -659,13 +671,13 @@ union SharedAllocationTracker {
 
   // Copy:
 
-  KOKKOS_FORCEINLINE_FUNCTION
+  KOKKOS_IMPL_SHARED_ALLOC_TRACKER_FUNCTION
   SharedAllocationTracker(const SharedAllocationTracker& rhs)
       : m_record_bits(KOKKOS_IMPL_SHARED_ALLOCATION_CARRY_RECORD_BITS(
             rhs, true)){KOKKOS_IMPL_SHARED_ALLOCATION_TRACKER_INCREMENT}
 
         /** \brief  Copy construction may disable tracking. */
-        KOKKOS_FORCEINLINE_FUNCTION SharedAllocationTracker(
+        KOKKOS_IMPL_SHARED_ALLOC_TRACKER_FUNCTION SharedAllocationTracker(
             const SharedAllocationTracker& rhs, const bool enable_tracking)
       : m_record_bits(KOKKOS_IMPL_SHARED_ALLOCATION_CARRY_RECORD_BITS(
             rhs,
@@ -726,6 +738,7 @@ union SharedAllocationTracker {
 #undef KOKKOS_IMPL_SHARED_ALLOCATION_TRACKER_INCREMENT
 #undef KOKKOS_IMPL_SHARED_ALLOCATION_TRACKER_DECREMENT
 #undef KOKKOS_IMPL_BRANCH_PROB
+#undef KOKKOS_IMPL_SHARED_ALLOC_TRACKER_FUNCTION
 };
 
 struct SharedAllocationDisableTrackingGuard {

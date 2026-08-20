@@ -329,7 +329,7 @@ class ReferenceCountedDataHandle {
       const ReferenceCountedDataHandle<OtherElementType, OtherSpace>& other)
       : m_tracker(other.m_tracker), m_handle(other.m_handle) {}
 
-  KOKKOS_INLINE_TILE_FUNCTION
+  KOKKOS_TILE_FUNCTION
   pointer get() const noexcept { return m_handle; }
   KOKKOS_FUNCTION
   explicit operator pointer() const noexcept { return m_handle; }

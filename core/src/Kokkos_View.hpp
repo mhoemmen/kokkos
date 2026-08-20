@@ -832,11 +832,7 @@ class View
     }
   }
 #else
-#if defined(KOKKOS_ENABLE_CUDA_TILE)
-  KOKKOS_INLINE_TILE_FUNCTION
-#else
   KOKKOS_DEFAULTED_FUNCTION
-#endif
   View(const View&)
     requires(!has_hooks_policy)
   = default;
@@ -857,11 +853,7 @@ class View
     }
   }
 #else
-#if defined(KOKKOS_ENABLE_CUDA_TILE)
-  KOKKOS_INLINE_TILE_FUNCTION
-#else
   KOKKOS_DEFAULTED_FUNCTION
-#endif
   View(View&&)
     requires(!has_hooks_policy)
   = default;
