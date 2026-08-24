@@ -26,16 +26,14 @@ constexpr int NUM_TILE_BLOCKS = TILE_GRID_M * TILE_GRID_N;
 using matrix_type =
     Kokkos::View<float**, Kokkos::LayoutRight, Kokkos::CudaSpace>;
 
-// Host allocates Kokkos::Views; the CuTile functor holds pointers + extents
-// (Views are not __tile__-callable / not trivially copyable) and rebuilds
-// tensor_span via the tile-safe make_tensor_span overload.
+// Host allocates Kokkos::Views and the functor holds them by value. View's
+// default/copy/move construction, destruction, extent(), stride(), and
+// data() are __tile__-callable, so make_tensor_span(view) can rebuild the
+// tensor_span directly from the captured View inside the tile kernel body.
 struct CuTileGemmFunctor {
-  float* A_ptr;
-  float* B_ptr;
-  float* C_ptr;
-  int m;
-  int n;
-  int length_k;
+  matrix_type A;
+  matrix_type B;
+  matrix_type C;
 
   __tile__ void operator()(int linear) const {
     namespace ct = cuda::tiles;
@@ -45,12 +43,9 @@ struct CuTileGemmFunctor {
     int const x_block = linear / TILE_GRID_N;
     int const y_block = linear % TILE_GRID_N;
 
-    auto a_span = Kokkos::make_tensor_span(A_ptr, Kokkos::LayoutRight{}, m,
-                                           length_k);
-    auto b_span = Kokkos::make_tensor_span(B_ptr, Kokkos::LayoutRight{},
-                                           length_k, n);
-    auto c_span =
-        Kokkos::make_tensor_span(C_ptr, Kokkos::LayoutRight{}, m, n);
+    auto a_span = Kokkos::make_tensor_span(A);
+    auto b_span = Kokkos::make_tensor_span(B);
+    auto c_span = Kokkos::make_tensor_span(C);
 
     auto a_view = ct::partition_view{a_span, ct::shape{4_ic, 8_ic}};
     auto b_view = ct::partition_view{b_span, ct::shape{8_ic, 4_ic}};
@@ -59,7 +54,8 @@ struct CuTileGemmFunctor {
     using f32x4x4 = ct::tile<float, ct::shape<4, 4>>;
     auto acc_tile = ct::full<f32x4x4>(0);
 
-    int const k_tiles = 1 + (length_k - 1) / TILE_K;
+    int const length_k = A.extent(1);
+    int const k_tiles  = 1 + (length_k - 1) / TILE_K;
     for (int idx = 0; idx < k_tiles; ++idx) {
       auto a_tile = a_view.load_masked(x_block, idx);
       auto b_tile = b_view.load_masked(idx, y_block);
@@ -69,7 +65,10 @@ struct CuTileGemmFunctor {
   }
 };
 
-static_assert(std::is_trivially_copyable_v<CuTileGemmFunctor>);
+// Kokkos::View is standard-layout but never std::is_trivially_copyable under
+// nvcc (see Kokkos_CuTile_KernelLaunch.hpp); CuTile's parallel_for driver
+// only requires standard layout for its raw cudaMemcpyAsync-based transfer.
+static_assert(std::is_standard_layout_v<CuTileGemmFunctor>);
 
 void host_reference_gemm(
     Kokkos::View<float**, Kokkos::LayoutRight, Kokkos::HostSpace> const& A,
@@ -124,7 +123,7 @@ int main(int argc, char* argv[]) {
     Kokkos::parallel_for(
         "example::cutile_gemm",
         Kokkos::RangePolicy<Kokkos::CuTile>(exec, 0, NUM_TILE_BLOCKS),
-        CuTileGemmFunctor{A.data(), B.data(), C.data(), M, N, K});
+        CuTileGemmFunctor{A, B, C});
     exec.fence();
 
     Kokkos::deep_copy(C_h, C);
