@@ -69,39 +69,6 @@ __tile__ __host__ __device__ auto make_cutile_strides(
 }  // namespace Impl
 
 // ---------------------------------------------------------------------------
-// Tile-callable overloads (pointer + layout + extents).
-//
-// View::data() / extent() / stride() are now __tile__-callable (see the View
-// overload below), so these pointer-based overloads are no longer required
-// to work around a __tile__-callability gap. They remain as a lower-level
-// building block for constructing a tensor_span from a raw pointer plus an
-// explicit layout and extents/strides, e.g. when no Kokkos::View is at hand.
-// ---------------------------------------------------------------------------
-
-template <class T, class... SizeTypes>
-__tile__ __host__ __device__ auto make_tensor_span(T* ptr, LayoutLeft,
-                                                   SizeTypes... sizes) {
-  auto extents = cuda::tiles::extents{
-      Impl::to_cutile_index(static_cast<std::size_t>(sizes))...};
-  return cuda::tiles::tensor_span{ptr, extents, cuda::tiles::layout_left{}};
-}
-
-template <class T, class... SizeTypes>
-__tile__ __host__ __device__ auto make_tensor_span(T* ptr, LayoutRight,
-                                                   SizeTypes... sizes) {
-  auto extents = cuda::tiles::extents{
-      Impl::to_cutile_index(static_cast<std::size_t>(sizes))...};
-  return cuda::tiles::tensor_span{ptr, extents, cuda::tiles::layout_right{}};
-}
-
-template <class T, class Extents, class Strides>
-__tile__ __host__ __device__ auto make_tensor_span(T* ptr, LayoutStride,
-                                                   Extents const& extents,
-                                                   Strides const& strides) {
-  return Impl::make_tensor_span_strided(ptr, extents, strides);
-}
-
-// ---------------------------------------------------------------------------
 // View overload, directly callable from __tile__ kernels.
 //
 // The View functions this depends on (default/copy/move construction,
