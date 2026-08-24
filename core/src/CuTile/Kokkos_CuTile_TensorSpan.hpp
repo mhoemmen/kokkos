@@ -71,9 +71,11 @@ __tile__ __host__ __device__ auto make_cutile_strides(
 // ---------------------------------------------------------------------------
 // Tile-callable overloads (pointer + layout + extents).
 //
-// View::data / extent / stride are only __host__ __device__, so they cannot be
-// called from __tile__ code. Tile kernels capture View::data() and extents on
-// the host into a trivially copyable functor, then call these overloads.
+// View::data() / extent() / stride() are now __tile__-callable (see the View
+// overload below), so these pointer-based overloads are no longer required
+// to work around a __tile__-callability gap. They remain as a lower-level
+// building block for constructing a tensor_span from a raw pointer plus an
+// explicit layout and extents/strides, e.g. when no Kokkos::View is at hand.
 // ---------------------------------------------------------------------------
 
 template <class T, class... SizeTypes>
