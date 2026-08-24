@@ -124,22 +124,22 @@ __tile__ __host__ __device__ auto make_tensor_span(ViewType const& view) {
                     ViewType::rank() <= ARRAY_LAYOUT_MAX_RANK,
                 "Kokkos::make_tensor_span rank must be in [1, 8]");
 
-  using layout_type          = typename ViewType::array_layout;
   constexpr std::size_t rank = ViewType::rank();
   auto extents =
       Impl::make_cutile_extents(view, std::make_index_sequence<rank>{});
   auto* ptr = view.data();
 
-  if constexpr (std::is_same_v<layout_type, LayoutLeft>) {
-    return cuda::tiles::tensor_span{ptr, extents, cuda::tiles::layout_left{}};
-  } else if constexpr (std::is_same_v<layout_type, LayoutRight>) {
-    return cuda::tiles::tensor_span{ptr, extents, cuda::tiles::layout_right{}};
-  } else {
-    static_assert(std::is_same_v<layout_type, LayoutStride>);
-    auto strides =
-        Impl::make_cutile_strides(view, std::make_index_sequence<rank>{});
-    return Impl::make_tensor_span_strided(ptr, extents, strides);
-  }
+  // Kokkos::LayoutLeft / Kokkos::LayoutRight do NOT imply that View's
+  // strides are exactly the extents-derived compact ones: they map onto
+  // mdspan's layout_left_padded<dynamic_extent> / layout_right_padded<
+  // dynamic_extent> (see Kokkos_MDSpan_Layout.hpp), which allow (and Kokkos
+  // sometimes uses) a stride larger than the raw extent product, e.g. for
+  // alignment padding. So always build the tensor_span from the View's
+  // actual per-dimension strides rather than assuming cuTile's compact
+  // layout_left / layout_right; this also covers LayoutStride.
+  auto strides =
+      Impl::make_cutile_strides(view, std::make_index_sequence<rank>{});
+  return Impl::make_tensor_span_strided(ptr, extents, strides);
 }
 
 }  // namespace Kokkos

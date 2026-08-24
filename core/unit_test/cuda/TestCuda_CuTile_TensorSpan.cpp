@@ -18,9 +18,11 @@ TEST(cuda, cutile_make_tensor_span_layout_right) {
   auto span = Kokkos::make_tensor_span(v);
   using span_type = decltype(span);
 
+  // The View overload always builds the tensor_span from View's actual
+  // strides (see Kokkos_CuTile_TensorSpan.hpp), so LayoutLeft/LayoutRight
+  // views yield a layout_strided tensor_span, not cuTile's compact
+  // layout_left/layout_right.
   static_assert(span_type::rank() == 2);
-  static_assert(
-      std::is_same_v<span_type::layout_type, cuda::tiles::layout_right>);
   ASSERT_EQ(span.extent(0), 3u);
   ASSERT_EQ(span.extent(1), 5u);
   ASSERT_EQ(span.data_handle(), v.data());
@@ -38,8 +40,6 @@ TEST(cuda, cutile_make_tensor_span_layout_left) {
   using span_type = decltype(span);
 
   static_assert(span_type::rank() == 2);
-  static_assert(
-      std::is_same_v<span_type::layout_type, cuda::tiles::layout_left>);
   ASSERT_EQ(span.extent(0), 4u);
   ASSERT_EQ(span.extent(1), 7u);
   ASSERT_EQ(span.data_handle(), v.data());
@@ -75,8 +75,6 @@ TEST(cuda, cutile_make_tensor_span_cuda_uvm_space) {
   using span_type = decltype(span);
 
   static_assert(span_type::rank() == 1);
-  static_assert(
-      std::is_same_v<span_type::layout_type, cuda::tiles::layout_left>);
   ASSERT_EQ(span.extent(0), 16u);
   ASSERT_EQ(span.data_handle(), v.data());
 }
