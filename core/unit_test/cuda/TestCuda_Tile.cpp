@@ -18,7 +18,7 @@ namespace Test {
 
 __tile_global__ void tile_vector_add(float* __restrict__ a,
                                      float* __restrict__ b,
-                                     float* __restrict__ out, std::size_t n) {
+                                     float* __restrict__ out, size_t n) {
   namespace ct = cuda::tiles;
   using namespace ct::literals;
 
@@ -26,19 +26,27 @@ __tile_global__ void tile_vector_add(float* __restrict__ a,
   b   = ct::assume_aligned(b, 16_ic);
   out = ct::assume_aligned(out, 16_ic);
 
-  auto shape  = ct::shape{8_ic};
+  constexpr auto tile_size = 8_ic;
+  auto shape  = ct::shape{tile_size};
   auto extent = ct::extents{n};
 
   auto a_view = ct::partition_view{ct::tensor_span{a, extent}, shape};
   auto b_view = ct::partition_view{ct::tensor_span{b, extent}, shape};
   auto o_view = ct::partition_view{ct::tensor_span{out, extent}, shape};
 
-  int bx = ct::bid().x;
-  o_view.store_masked(a_view.load_masked(bx) + b_view.load_masked(bx), bx);
+  const size_t n_tile = n / tile_size;
+  const size_t n_tile_block = n_tile / ct::num_blocks().x;
+  const size_t tile_start = ct::bid().x * n_tile_block;
+  const size_t tile_end = tile_start + n_tile_block;
+  for (size_t tile_index : ct::irange(tile_start, tile_end)) {
+    auto a_plus_b = a_view.load_masked(tile_index) + b_view.load_masked(tile_index);
+    o_view.store_masked(a_plus_b, tile_index);
+  }
 }
 
 TEST(cuda, tile_vector_add) {
   constexpr std::size_t N = 256;
+  constexpr std::size_t num_blocks = 2;
 
   std::array<float, N> h_a;
   std::array<float, N> h_b;
@@ -61,7 +69,7 @@ TEST(cuda, tile_vector_add) {
 
   // A tile kernel must be launched with a block dimension of one; the
   // compiler decides how many threads actually execute the kernel.
-  tile_vector_add<<<1, 1>>>(d_a, d_b, d_out, N);
+  tile_vector_add<<<num_blocks, 1>>>(d_a, d_b, d_out, N);
   KOKKOS_IMPL_CUDA_SAFE_CALL(cudaGetLastError());
   KOKKOS_IMPL_CUDA_SAFE_CALL(cudaDeviceSynchronize());
 
