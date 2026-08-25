@@ -143,10 +143,10 @@ TEST(cuda, cutile_make_tensor_span_from_view_parallel_for_vector_add) {
   Kokkos::deep_copy(out_m, out_h);
 
   constexpr int nblocks = 1;
-  Kokkos::CuTile exec;
+  Kokkos::Cuda exec;
   Kokkos::parallel_for(
       "Test::cuda::cutile_make_tensor_span_from_view_vector_add",
-      Kokkos::RangePolicy<Kokkos::CuTile>(exec, 0, nblocks),
+      Kokkos::TileRangePolicy<Kokkos::Cuda>(exec, 0, nblocks),
       CuTileTensorSpanFromViewVectorAdd{unmanaged_type(a_m),
                                         unmanaged_type(b_m),
                                         unmanaged_type(out_m)});
@@ -233,10 +233,10 @@ TEST(cuda, cutile_make_tensor_span_from_view_layout_left_right_stride) {
   Kokkos::View<float*, Kokkos::CudaSpace> out_m("out", 3);
   probe_type::out_type out(out_m.data(), 3, 1);
 
-  Kokkos::CuTile exec;
+  Kokkos::Cuda exec;
   Kokkos::parallel_for(
       "Test::cuda::cutile_make_tensor_span_from_view_layout_probe",
-      Kokkos::RangePolicy<Kokkos::CuTile>(exec, 0, 1),
+      Kokkos::TileRangePolicy<Kokkos::Cuda>(exec, 0, 1),
       probe_type{left, right, strided, out});
   exec.fence();
 
@@ -298,10 +298,10 @@ TEST(cuda, cutile_make_tensor_span_from_managed_view_parallel_for_vector_add) {
   Kokkos::deep_copy(out_m, out_h);
 
   constexpr int nblocks = 1;
-  Kokkos::CuTile exec;
+  Kokkos::Cuda exec;
   Kokkos::parallel_for(
       "Test::cuda::cutile_make_tensor_span_from_managed_view_vector_add",
-      Kokkos::RangePolicy<Kokkos::CuTile>(exec, 0, nblocks),
+      Kokkos::TileRangePolicy<Kokkos::Cuda>(exec, 0, nblocks),
       CuTileTensorSpanFromManagedViewVectorAdd{a_m, b_m, out_m});
   exec.fence();
 
@@ -384,10 +384,10 @@ TEST(cuda, cutile_make_tensor_span_from_managed_view_layout_left_right_stride) {
   // 3x1 so we can store 1x1 tiles at (0,0), (1,0), and (2,0).
   probe_type::out_type out("out", 3, 1);
 
-  Kokkos::CuTile exec;
+  Kokkos::Cuda exec;
   Kokkos::parallel_for(
       "Test::cuda::cutile_make_tensor_span_from_managed_view_layout_probe",
-      Kokkos::RangePolicy<Kokkos::CuTile>(exec, 0, 1),
+      Kokkos::TileRangePolicy<Kokkos::Cuda>(exec, 0, 1),
       probe_type{left, right, strided, out});
   exec.fence();
 

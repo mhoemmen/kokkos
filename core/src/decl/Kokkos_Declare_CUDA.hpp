@@ -17,8 +17,7 @@
 #include <Cuda/Kokkos_Cuda_UniqueToken.hpp>
 #include <Cuda/Kokkos_Cuda_ZeroMemset.hpp>
 #if defined(KOKKOS_ENABLE_CUDA_TILE)
-#include <CuTile/Kokkos_CuTile.hpp>
-#include <CuTile/Kokkos_CuTile_Instance.hpp>
+#include <CuTile/Kokkos_CuTile_ExecPolicy.hpp>
 #include <CuTile/Kokkos_CuTile_KernelLaunch.hpp>
 #include <CuTile/Kokkos_CuTile_Parallel_Range.hpp>
 #include <CuTile/Kokkos_CuTile_TensorSpan.hpp>

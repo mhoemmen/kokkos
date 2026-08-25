@@ -7,7 +7,6 @@
 #include <Kokkos_Macros.hpp>
 #if defined(KOKKOS_ENABLE_CUDA) && defined(KOKKOS_ENABLE_CUDA_TILE)
 
-#include <CuTile/Kokkos_CuTile_Instance.hpp>
 #include <Cuda/Kokkos_Cuda_Error.hpp>
 
 #include <cuda_tile.h>

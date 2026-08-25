@@ -119,10 +119,10 @@ int main(int argc, char* argv[]) {
     Kokkos::deep_copy(B, B_h);
     Kokkos::deep_copy(C, C_h);
 
-    Kokkos::CuTile exec;
+    Kokkos::Cuda exec;
     Kokkos::parallel_for(
         "example::cutile_gemm",
-        Kokkos::RangePolicy<Kokkos::CuTile>(exec, 0, NUM_TILE_BLOCKS),
+        Kokkos::TileRangePolicy<Kokkos::Cuda>(exec, 0, NUM_TILE_BLOCKS),
         CuTileGemmFunctor{A, B, C});
     exec.fence();
 

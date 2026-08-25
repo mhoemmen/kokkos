@@ -8,7 +8,8 @@
 #if defined(KOKKOS_ENABLE_CUDA) && defined(KOKKOS_ENABLE_CUDA_TILE)
 
 #include <Kokkos_Parallel.hpp>
-#include <CuTile/Kokkos_CuTile.hpp>
+#include <Cuda/Kokkos_Cuda.hpp>
+#include <CuTile/Kokkos_CuTile_ExecPolicy.hpp>
 #include <CuTile/Kokkos_CuTile_KernelLaunch.hpp>
 #include <Kokkos_StandardLayoutTuple.hpp>
 
@@ -49,9 +50,10 @@ struct CuTileRangeParallelForDriver {
 };
 
 template <class FunctorType, class... Traits>
-class ParallelFor<FunctorType, Kokkos::RangePolicy<Traits...>, Kokkos::CuTile> {
+class ParallelFor<FunctorType, Kokkos::TileRangePolicy<Traits...>,
+                   Kokkos::Cuda> {
  public:
-  using Policy = Kokkos::RangePolicy<Traits...>;
+  using Policy = Kokkos::TileRangePolicy<Traits...>;
 
  private:
   using Member  = typename Policy::member_type;

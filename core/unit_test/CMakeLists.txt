@@ -757,7 +757,6 @@ if(Kokkos_ENABLE_CUDA)
       UnitTestMainInit.cpp
       cuda/TestCuda_Tile.cpp
       cuda/TestCuda_StandardLayoutTuple.cpp
-      cuda/TestCuda_CuTile_Stream.cpp
       cuda/TestCuda_CuTile_ParallelFor.cpp
       cuda/TestCuda_CuTile_TensorSpan.cpp
     )

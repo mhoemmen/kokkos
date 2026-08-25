@@ -27,9 +27,9 @@ TEST(cuda, cutile_parallel_for_range) {
   KOKKOS_IMPL_CUDA_SAFE_CALL(cudaMalloc(&d_out, sizeof(int) * N));
   KOKKOS_IMPL_CUDA_SAFE_CALL(cudaMemset(d_out, 0, sizeof(int) * N));
 
-  Kokkos::CuTile exec;
+  Kokkos::Cuda exec;
   Kokkos::parallel_for("Test::cuda::cutile_parallel_for_range",
-                       Kokkos::RangePolicy<Kokkos::CuTile>(exec, 0, N),
+                       Kokkos::TileRangePolicy<Kokkos::Cuda>(exec, 0, N),
                        CuTileFillFunctor{d_out});
   exec.fence();
 
