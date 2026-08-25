@@ -27,25 +27,26 @@ __tile_global__ void tile_vector_add(float* __restrict__ a,
   out = ct::assume_aligned(out, 16_ic);
 
   constexpr auto tile_size = 8_ic;
-  auto shape  = ct::shape{tile_size};
-  auto extent = ct::extents{n};
+  auto shape               = ct::shape{tile_size};
+  auto extent              = ct::extents{n};
 
   auto a_view = ct::partition_view{ct::tensor_span{a, extent}, shape};
   auto b_view = ct::partition_view{ct::tensor_span{b, extent}, shape};
   auto o_view = ct::partition_view{ct::tensor_span{out, extent}, shape};
 
-  const size_t n_tile = n / tile_size;
+  const size_t n_tile       = n / tile_size;
   const size_t n_tile_block = n_tile / ct::num_blocks().x;
-  const size_t tile_start = ct::bid().x * n_tile_block;
-  const size_t tile_end = tile_start + n_tile_block;
+  const size_t tile_start   = ct::bid().x * n_tile_block;
+  const size_t tile_end     = tile_start + n_tile_block;
   for (size_t tile_index : ct::irange(tile_start, tile_end)) {
-    auto a_plus_b = a_view.load_masked(tile_index) + b_view.load_masked(tile_index);
+    auto a_plus_b =
+        a_view.load_masked(tile_index) + b_view.load_masked(tile_index);
     o_view.store_masked(a_plus_b, tile_index);
   }
 }
 
 TEST(cuda, tile_vector_add) {
-  constexpr std::size_t N = 256;
+  constexpr std::size_t N          = 256;
   constexpr std::size_t num_blocks = 2;
 
   std::array<float, N> h_a;
