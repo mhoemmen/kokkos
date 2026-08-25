@@ -16,8 +16,9 @@ import kokkos.core;
 
 namespace Test {
 
-__tile_global__ void tile_vector_add(float* __restrict__ a, float* __restrict__ b, float* __restrict__ out,
-                                     std::size_t n) {
+__tile_global__ void tile_vector_add(float* __restrict__ a,
+                                     float* __restrict__ b,
+                                     float* __restrict__ out, std::size_t n) {
   namespace ct = cuda::tiles;
   using namespace ct::literals;
 
