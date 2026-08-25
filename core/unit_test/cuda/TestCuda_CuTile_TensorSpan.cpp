@@ -246,4 +246,155 @@ TEST(cuda, cutile_make_tensor_span_from_view_layout_left_right_stride) {
   ASSERT_FLOAT_EQ(out_h(2), 20.0f);  // LayoutStride (1,0), left-equivalent strides
 }
 
+// Same as CuTileTensorSpanFromViewVectorAdd, but the functor holds managed
+// (not MemoryTraits<Unmanaged>) Kokkos::View fields directly, as
+// example/cutile_gemm/cutile_gemm.cpp does.
+struct CuTileTensorSpanFromManagedViewVectorAdd {
+  using view_type =
+      Kokkos::View<float*, Kokkos::LayoutLeft, Kokkos::CudaSpace>;
+  view_type a;
+  view_type b;
+  view_type out;
+
+  __tile__ void operator()(int) const {
+    namespace ct = cuda::tiles;
+    using namespace ct::literals;
+
+    auto a_span   = Kokkos::make_tensor_span(a);
+    auto b_span   = Kokkos::make_tensor_span(b);
+    auto out_span = Kokkos::make_tensor_span(out);
+
+    auto a_view   = ct::partition_view{a_span, ct::shape{8_ic}};
+    auto b_view   = ct::partition_view{b_span, ct::shape{8_ic}};
+    auto out_view = ct::partition_view{out_span, ct::shape{8_ic}};
+
+    int bx = ct::bid().x;
+    out_view.store_masked(a_view.load_masked(bx) + b_view.load_masked(bx),
+                          bx);
+  }
+};
+
+static_assert(
+    std::is_standard_layout_v<CuTileTensorSpanFromManagedViewVectorAdd>);
+
+TEST(cuda, cutile_make_tensor_span_from_managed_view_parallel_for_vector_add) {
+  constexpr int N = 8;
+
+  using view_type = CuTileTensorSpanFromManagedViewVectorAdd::view_type;
+
+  view_type a_m("a", N);
+  view_type b_m("b", N);
+  view_type out_m("out", N);
+
+  auto a_h   = Kokkos::create_mirror_view(a_m);
+  auto b_h   = Kokkos::create_mirror_view(b_m);
+  auto out_h = Kokkos::create_mirror_view(out_m);
+  for (int i = 0; i < N; ++i) {
+    a_h(i) = static_cast<float>(i);
+    b_h(i) = static_cast<float>(2 * i);
+  }
+  Kokkos::deep_copy(a_m, a_h);
+  Kokkos::deep_copy(b_m, b_h);
+  Kokkos::deep_copy(out_m, out_h);
+
+  constexpr int nblocks = 1;
+  Kokkos::CuTile exec;
+  Kokkos::parallel_for(
+      "Test::cuda::cutile_make_tensor_span_from_managed_view_vector_add",
+      Kokkos::RangePolicy<Kokkos::CuTile>(exec, 0, nblocks),
+      CuTileTensorSpanFromManagedViewVectorAdd{a_m, b_m, out_m});
+  exec.fence();
+
+  Kokkos::deep_copy(out_h, out_m);
+  for (int i = 0; i < N; ++i) {
+    ASSERT_FLOAT_EQ(out_h(i), a_h(i) + b_h(i)) << "mismatch at index " << i;
+  }
+}
+
+// Same coverage as CuTileTensorSpanFromViewLayoutProbe (LayoutLeft,
+// LayoutRight, and LayoutStride, each decoded via make_tensor_span from a
+// Kokkos::View held by the functor), but with managed Views instead of
+// unmanaged views aliasing a single shared buffer: each View is
+// independently allocated, and a distinctive value at (1,0) confirms
+// make_tensor_span decodes each layout's strides correctly.
+struct CuTileTensorSpanFromManagedViewLayoutProbe {
+  using left_type =
+      Kokkos::View<float**, Kokkos::LayoutLeft, Kokkos::CudaSpace>;
+  using right_type =
+      Kokkos::View<float**, Kokkos::LayoutRight, Kokkos::CudaSpace>;
+  using stride_type =
+      Kokkos::View<float**, Kokkos::LayoutStride, Kokkos::CudaSpace>;
+  using out_type =
+      Kokkos::View<float**, Kokkos::LayoutLeft, Kokkos::CudaSpace>;
+
+  left_type left;
+  right_type right;
+  stride_type strided;
+  out_type out;
+
+  __tile__ void operator()(int) const {
+    namespace ct = cuda::tiles;
+    using namespace ct::literals;
+
+    auto left_span    = Kokkos::make_tensor_span(left);
+    auto right_span   = Kokkos::make_tensor_span(right);
+    auto strided_span = Kokkos::make_tensor_span(strided);
+    auto out_span     = Kokkos::make_tensor_span(out);
+
+    auto left_view    = ct::partition_view{left_span, ct::shape{1_ic, 1_ic}};
+    auto right_view   = ct::partition_view{right_span, ct::shape{1_ic, 1_ic}};
+    auto strided_view = ct::partition_view{strided_span, ct::shape{1_ic, 1_ic}};
+    auto out_view     = ct::partition_view{out_span, ct::shape{1_ic, 1_ic}};
+
+    out_view.store_masked(left_view.load_masked(1, 0), 0, 0);
+    out_view.store_masked(right_view.load_masked(1, 0), 1, 0);
+    out_view.store_masked(strided_view.load_masked(1, 0), 2, 0);
+  }
+};
+
+static_assert(
+    std::is_standard_layout_v<CuTileTensorSpanFromManagedViewLayoutProbe>);
+
+TEST(cuda, cutile_make_tensor_span_from_managed_view_layout_left_right_stride) {
+  constexpr int N0 = 2;
+  constexpr int N1 = 2;
+
+  using probe_type = CuTileTensorSpanFromManagedViewLayoutProbe;
+
+  probe_type::left_type left("left", N0, N1);
+  {
+    auto h  = Kokkos::create_mirror_view(left);
+    h(1, 0) = 20.0f;
+    Kokkos::deep_copy(left, h);
+  }
+  probe_type::right_type right("right", N0, N1);
+  {
+    auto h  = Kokkos::create_mirror_view(right);
+    h(1, 0) = 30.0f;
+    Kokkos::deep_copy(right, h);
+  }
+  Kokkos::LayoutStride stride_layout(N0, 1, N1, N0);
+  probe_type::stride_type strided("strided", stride_layout);
+  {
+    auto h  = Kokkos::create_mirror_view(strided);
+    h(1, 0) = 40.0f;
+    Kokkos::deep_copy(strided, h);
+  }
+
+  // 3x1 so we can store 1x1 tiles at (0,0), (1,0), and (2,0).
+  probe_type::out_type out("out", 3, 1);
+
+  Kokkos::CuTile exec;
+  Kokkos::parallel_for(
+      "Test::cuda::cutile_make_tensor_span_from_managed_view_layout_probe",
+      Kokkos::RangePolicy<Kokkos::CuTile>(exec, 0, 1),
+      probe_type{left, right, strided, out});
+  exec.fence();
+
+  auto out_h = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, out);
+  ASSERT_FLOAT_EQ(out_h(0, 0), 20.0f);  // LayoutLeft (1,0)
+  ASSERT_FLOAT_EQ(out_h(1, 0), 30.0f);  // LayoutRight (1,0)
+  ASSERT_FLOAT_EQ(out_h(2, 0), 40.0f);  // LayoutStride (1,0)
+}
+
 }  // namespace Test
