@@ -167,9 +167,10 @@ TEST(cuda, tile_kernel_invoker) { cuda_tile_kernel_invoker(); }
 // constructed on the host from a Kokkos::View, then embedded by value in
 // the Driver struct that gets memcpy'd to device scratch memory.
 struct TileViewVectorAddDriver {
-  using ViewType   = Kokkos::View<float*, Kokkos::Cuda>;
-  using ShapeType  = cuda::tiles::shape<8>;
-  using TileViewType = Kokkos::TileView<ViewType, ShapeType>;
+  using ShapeType     = cuda::tiles::shape<8>;
+  using TileType      = cuda::tiles::tile<float, ShapeType>;
+  using ExtentsType   = cuda::tiles::extents<uint32_t, cuda::tiles::dynamic_extent>;
+  using TileViewType = Kokkos::TileView<TileType, ExtentsType>;
 
   TileViewType a;
   TileViewType b;
@@ -212,11 +213,9 @@ void cuda_tile_view_kernel_invoker() {
         b(i) = 2 * i;
       });
 
-  using ShapeType = TileViewVectorAddDriver::ShapeType;
-  TileViewVectorAddDriver driver{
-      Kokkos::TileView<decltype(a), ShapeType>(a),
-      Kokkos::TileView<decltype(b), ShapeType>(b),
-      Kokkos::TileView<decltype(out), ShapeType>(out), N};
+  using TileViewType = TileViewVectorAddDriver::TileViewType;
+  TileViewVectorAddDriver driver{TileViewType(a), TileViewType(b),
+                                  TileViewType(out), N};
 
   using impl_launch_invoker = Kokkos::Impl::CudaParallelLaunchTileKernelInvoker<
       TileViewVectorAddDriver,
@@ -244,11 +243,10 @@ TEST(cuda, tile_view_vector_add) { cuda_tile_view_kernel_invoker(); }
 struct TileViewNoncontiguousRank1AddDriver {
   using BackingViewType =
       Kokkos::View<float* [2], Kokkos::LayoutRight, Kokkos::Cuda>;
-  using ViewType =
-      decltype(Kokkos::subview(std::declval<BackingViewType const&>(),
-                                Kokkos::ALL, 0));
-  using ShapeType    = cuda::tiles::shape<8>;
-  using TileViewType = Kokkos::TileView<ViewType, ShapeType>;
+  using ShapeType     = cuda::tiles::shape<8>;
+  using TileType      = cuda::tiles::tile<float, ShapeType>;
+  using ExtentsType   = cuda::tiles::extents<uint32_t, cuda::tiles::dynamic_extent>;
+  using TileViewType = Kokkos::TileView<TileType, ExtentsType>;
 
   TileViewType a;
   TileViewType b;
@@ -300,11 +298,9 @@ void cuda_tile_view_noncontiguous_rank1_add() {
   auto b   = Kokkos::subview(b_full, Kokkos::ALL, 0);
   auto out = Kokkos::subview(out_full, Kokkos::ALL, 0);
 
-  using ShapeType = TileViewNoncontiguousRank1AddDriver::ShapeType;
+  using TileViewType = TileViewNoncontiguousRank1AddDriver::TileViewType;
   TileViewNoncontiguousRank1AddDriver driver{
-      Kokkos::TileView<decltype(a), ShapeType>(a),
-      Kokkos::TileView<decltype(b), ShapeType>(b),
-      Kokkos::TileView<decltype(out), ShapeType>(out), N};
+      TileViewType(a), TileViewType(b), TileViewType(out), N};
 
   using impl_launch_invoker = Kokkos::Impl::CudaParallelLaunchTileKernelInvoker<
       TileViewNoncontiguousRank1AddDriver,
@@ -338,11 +334,11 @@ TEST(cuda, tile_view_noncontiguous_rank1_add) {
 struct TileViewNoncontiguousRank2AddDriver {
   using BackingViewType =
       Kokkos::View<float* [4][2], Kokkos::LayoutRight, Kokkos::Cuda>;
-  using ViewType =
-      decltype(Kokkos::subview(std::declval<BackingViewType const&>(),
-                                Kokkos::ALL, Kokkos::ALL, 0));
-  using ShapeType    = cuda::tiles::shape<8, 4>;
-  using TileViewType = Kokkos::TileView<ViewType, ShapeType>;
+  using ShapeType   = cuda::tiles::shape<8, 4>;
+  using TileType    = cuda::tiles::tile<float, ShapeType>;
+  using ExtentsType = cuda::tiles::extents<uint32_t, cuda::tiles::dynamic_extent,
+                                            cuda::tiles::dynamic_extent>;
+  using TileViewType = Kokkos::TileView<TileType, ExtentsType>;
 
   TileViewType a;
   TileViewType b;
@@ -398,11 +394,9 @@ void cuda_tile_view_noncontiguous_rank2_add() {
   auto b   = Kokkos::subview(b_full, Kokkos::ALL, Kokkos::ALL, 0);
   auto out = Kokkos::subview(out_full, Kokkos::ALL, Kokkos::ALL, 0);
 
-  using ShapeType = TileViewNoncontiguousRank2AddDriver::ShapeType;
+  using TileViewType = TileViewNoncontiguousRank2AddDriver::TileViewType;
   TileViewNoncontiguousRank2AddDriver driver{
-      Kokkos::TileView<decltype(a), ShapeType>(a),
-      Kokkos::TileView<decltype(b), ShapeType>(b),
-      Kokkos::TileView<decltype(out), ShapeType>(out), N};
+      TileViewType(a), TileViewType(b), TileViewType(out), N};
 
   using impl_launch_invoker = Kokkos::Impl::CudaParallelLaunchTileKernelInvoker<
       TileViewNoncontiguousRank2AddDriver,
