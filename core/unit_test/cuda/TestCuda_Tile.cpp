@@ -213,9 +213,12 @@ void cuda_tile_view_kernel_invoker() {
         b(i) = 2 * i;
       });
 
-  using TileViewType = TileViewVectorAddDriver::TileViewType;
-  TileViewVectorAddDriver driver{TileViewType(a), TileViewType(b),
-                                  TileViewType(out), N};
+  // CTAD deduces Kokkos::TileView's template arguments from the View and
+  // shape arguments here.
+  TileViewVectorAddDriver::ShapeType shape;
+  TileViewVectorAddDriver driver{Kokkos::TileView(a, shape),
+                                  Kokkos::TileView(b, shape),
+                                  Kokkos::TileView(out, shape), N};
 
   using impl_launch_invoker = Kokkos::Impl::CudaParallelLaunchTileKernelInvoker<
       TileViewVectorAddDriver,
@@ -298,9 +301,10 @@ void cuda_tile_view_noncontiguous_rank1_add() {
   auto b   = Kokkos::subview(b_full, Kokkos::ALL, 0);
   auto out = Kokkos::subview(out_full, Kokkos::ALL, 0);
 
-  using TileViewType = TileViewNoncontiguousRank1AddDriver::TileViewType;
+  TileViewNoncontiguousRank1AddDriver::ShapeType shape;
   TileViewNoncontiguousRank1AddDriver driver{
-      TileViewType(a), TileViewType(b), TileViewType(out), N};
+      Kokkos::TileView(a, shape), Kokkos::TileView(b, shape),
+      Kokkos::TileView(out, shape), N};
 
   using impl_launch_invoker = Kokkos::Impl::CudaParallelLaunchTileKernelInvoker<
       TileViewNoncontiguousRank1AddDriver,
@@ -394,9 +398,10 @@ void cuda_tile_view_noncontiguous_rank2_add() {
   auto b   = Kokkos::subview(b_full, Kokkos::ALL, Kokkos::ALL, 0);
   auto out = Kokkos::subview(out_full, Kokkos::ALL, Kokkos::ALL, 0);
 
-  using TileViewType = TileViewNoncontiguousRank2AddDriver::TileViewType;
+  TileViewNoncontiguousRank2AddDriver::ShapeType shape;
   TileViewNoncontiguousRank2AddDriver driver{
-      TileViewType(a), TileViewType(b), TileViewType(out), N};
+      Kokkos::TileView(a, shape), Kokkos::TileView(b, shape),
+      Kokkos::TileView(out, shape), N};
 
   using impl_launch_invoker = Kokkos::Impl::CudaParallelLaunchTileKernelInvoker<
       TileViewNoncontiguousRank2AddDriver,

@@ -80,7 +80,11 @@ struct AllDynamicCudaTileExtents<Rank, std::index_sequence<Ranks...>> {
 /// specialization describing the index space of the whole tensor that
 /// gets partitioned into those tiles.
 ///
-/// A TileView is constructed on the host from a Kokkos::View.  It stores
+/// A TileView is constructed on the host from a Kokkos::View and a
+/// cuda::tiles tile shape tag (e.g. cuda::tiles::shape<8>{}); template
+/// argument deduction picks TileType and Extents automatically, so
+/// callers need not spell out TileView<TileType, Extents> explicitly.
+/// It stores
 /// a cuda::tiles::tensor_span (a raw device pointer plus the View's
 /// runtime extents and strides), which is trivially copyable, so a
 /// TileView may be embedded by value in a Driver struct handed to
@@ -88,11 +92,10 @@ struct AllDynamicCudaTileExtents<Rank, std::index_sequence<Ranks...>> {
 /// Kokkos_Cuda_KernelLaunchTile.hpp), which forbids passing struct
 /// arguments directly to a __tile_global__ kernel.
 ///
-/// The tensor_span's layout is always cuda::tiles::layout_strided, built
-/// from the View's runtime strides, regardless of the View's
-/// array_layout (Kokkos::LayoutLeft, Kokkos::LayoutRight, and
-/// Kokkos::LayoutStride do not correspond to
-/// cuda::tiles::layout_left/layout_right).
+/// The tensor_span's layout is always cuda::tiles::layout_strided,
+/// built from the View's runtime strides, regardless of the View's
+/// array_layout (Kokkos::Layout{Left,Right} do not correspond exactly
+/// to cuda::tiles::layout_{left,right}).
 ///
 /// Inside a tile kernel body, a TileView converts implicitly to the
 /// cuda::tiles::partition_view used to load/store register tiles.
@@ -120,11 +123,13 @@ class TileView {
   using partition_view_type =
       Impl::ct::partition_view<span_type, tile_shape_type>;
 
-  TileView() = default;
-
-  // Construct from a Kokkos::View on the host.
+  // Construct from a Kokkos::View and a tile shape tag on the host.  The
+  // shape argument's type must match tile_shape_type; its value is
+  // unused (cuda::tiles shapes are stateless tags), but the parameter is
+  // required so that TileView's template arguments can be deduced via
+  // CTAD -- see the deduction guide below.
   template <class ViewType>
-  TileView(ViewType const& view) noexcept
+  TileView(ViewType const& view, tile_shape_type) noexcept
       : span_(view.data(),
               mapping_type(
                   Impl::cuda_tile_extents_from_view<extents_type>(
@@ -158,6 +163,17 @@ class TileView {
  private:
   span_type span_;
 };
+
+// Deduces TileView's template arguments from a Kokkos::View and a
+// cuda::tiles tile shape tag, so that callers can write, e.g.,
+// Kokkos::TileView(view, cuda::tiles::shape<8>{}) without spelling out
+// TileView<TileType, Extents> explicitly.  This can't be synthesized from
+// the constructor alone, since neither TileType nor Extents appears
+// directly among the constructor's parameter types.
+template <class ViewType, class TileShape>
+TileView(ViewType const&, TileShape) -> TileView<
+    Impl::ct::tile<typename ViewType::non_const_value_type, TileShape>,
+    typename Impl::AllDynamicCudaTileExtents<ViewType::rank()>::type>;
 
 }  // namespace Kokkos
 
