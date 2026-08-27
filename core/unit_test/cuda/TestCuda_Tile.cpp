@@ -431,4 +431,107 @@ TEST(cuda, tile_view_noncontiguous_rank2_add) {
   cuda_tile_view_noncontiguous_rank2_add();
 }
 
+// This driver is templated on the "view-like" type used for its a/b/out
+// members, and its operator() only ever calls .load(idx...) and
+// .store(tile, idx...) on them.  Both cuda::tiles::partition_view and
+// Kokkos::TileView implement that interface, so this same driver
+// template -- unmodified -- can be instantiated with either one.  That's
+// exactly what it means for TileView to be usable in place of a
+// partition_view for load and store operations.
+template <class ViewLikeType>
+struct GenericVectorAddDriver {
+  ViewLikeType a;
+  ViewLikeType b;
+  ViewLikeType out;
+  std::size_t n;
+
+  KOKKOS_EXPERIMENTAL_TILE_FUNCTION
+  void operator()() const {
+    namespace ct = cuda::tiles;
+
+    constexpr std::size_t tile_size = 8;
+    const size_t n_tile             = n / tile_size;
+    const size_t n_tile_block       = n_tile / ct::num_blocks().x;
+    const size_t tile_start         = ct::bid().x * n_tile_block;
+    const size_t tile_end           = tile_start + n_tile_block;
+    for (size_t tile_index : ct::irange(tile_start, tile_end)) {
+      auto a_plus_b = a.load(tile_index) + b.load(tile_index);
+      out.store(a_plus_b, tile_index);
+    }
+  }
+};
+
+template <class ViewLikeType>
+void run_generic_vector_add(ViewLikeType a, ViewLikeType b, ViewLikeType out,
+                             std::size_t n, Kokkos::Cuda& cuda_instance) {
+  using Driver = GenericVectorAddDriver<ViewLikeType>;
+  Driver driver{a, b, out, n};
+
+  using impl_launch_invoker = Kokkos::Impl::CudaParallelLaunchTileKernelInvoker<
+      Driver, Kokkos::Impl::CudaLaunchMechanism::GlobalMemory>;
+
+  dim3 grid{1, 1, 1};
+  impl_launch_invoker::invoke_kernel(
+      driver, grid, cuda_instance.impl_internal_space_instance());
+
+  cuda_instance.fence();
+}
+
+void cuda_tile_view_substitutes_for_partition_view() {
+  constexpr std::size_t N = 256;
+
+  Kokkos::View<float*, Kokkos::Cuda> a("A", N);
+  Kokkos::View<float*, Kokkos::Cuda> b("B", N);
+  Kokkos::View<float*, Kokkos::Cuda> out_via_tile_view("OutTileView", N);
+  Kokkos::View<float*, Kokkos::Cuda> out_via_partition_view(
+      "OutPartitionView", N);
+
+  Kokkos::Cuda cuda_instance;
+
+  Kokkos::parallel_for(
+      N, KOKKOS_LAMBDA(int i) {
+        a(i) = i;
+        b(i) = 2 * i;
+      });
+
+  // Run the generic driver with Kokkos::TileView, built on the host from
+  // Kokkos::Views via CTAD.
+  cuda::tiles::shape<8> shape;
+  run_generic_vector_add(Kokkos::TileView(a, shape), Kokkos::TileView(b, shape),
+                          Kokkos::TileView(out_via_tile_view, shape), N,
+                          cuda_instance);
+
+  // Run the exact same generic driver template, instantiated instead
+  // with cuda::tiles::partition_view built directly from raw device
+  // pointers (mirroring the low-level cuda.tile_vector_add test above),
+  // to prove Kokkos::TileView is a drop-in substitute for
+  // cuda::tiles::partition_view.
+  namespace ct = cuda::tiles;
+  using ExtentsType = ct::extents<uint32_t, ct::dynamic_extent>;
+  using SpanType    = ct::tensor_span<float, ExtentsType>;
+  using PartitionViewType = ct::partition_view<SpanType, ct::shape<8>>;
+
+  ExtentsType extents(static_cast<uint32_t>(N));
+  PartitionViewType pv_a(SpanType(a.data(), extents), ct::shape<8>{});
+  PartitionViewType pv_b(SpanType(b.data(), extents), ct::shape<8>{});
+  PartitionViewType pv_out(
+      SpanType(out_via_partition_view.data(), extents), ct::shape<8>{});
+  run_generic_vector_add(pv_a, pv_b, pv_out, N, cuda_instance);
+
+  auto h_out_tile_view = Kokkos::create_mirror_view_and_copy(out_via_tile_view);
+  auto h_out_partition_view =
+      Kokkos::create_mirror_view_and_copy(out_via_partition_view);
+  int errors = 0;
+  for (std::size_t i = 0; i < N; ++i) {
+    float expected = float(3 * i);
+    if (h_out_tile_view(i) != expected) errors++;
+    if (h_out_partition_view(i) != expected) errors++;
+  }
+  ASSERT_EQ(errors, 0);
+}
+
+TEST(cuda, tile_view_substitutes_for_partition_view) {
+  cuda_tile_view_substitutes_for_partition_view();
+}
+
 }  // namespace Test
