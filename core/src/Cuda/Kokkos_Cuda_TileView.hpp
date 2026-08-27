@@ -68,6 +68,67 @@ struct AllDynamicCudaTileExtents<Rank, std::index_sequence<Ranks...>> {
   using type = ct::extents<uint32_t, ((void)Ranks, ct::dynamic_extent)...>;
 };
 
+// Declared, but never defined -- only usable in an unevaluated context
+// (e.g., decltype) -- so that its trailing return type can be extracted
+// as a cuda::tiles::extents specialization via CudaTileExtentsProduct.
+// Requires that, in every extent where both Extents1 and Extents2 are
+// static, their product doesn't need to be (and isn't) computed with any
+// remainder -- multiplication is always exact, unlike the division in
+// cuda_tile_index_space_extents_from_view below.
+template <class Extents1, class Extents2, size_t... Ranks>
+auto cuda_tile_extents_product(std::index_sequence<Ranks...>) -> ct::extents<
+    uint32_t,
+    (Extents1::static_extent(Ranks) == ct::dynamic_extent ||
+             Extents2::static_extent(Ranks) == ct::dynamic_extent
+         ? ct::dynamic_extent
+         : Extents1::static_extent(Ranks) * Extents2::static_extent(Ranks))...>;
+
+// The cuda::tiles::extents specialization for the elementwise product of
+// Extents1 and Extents2 (which must have the same rank), static wherever
+// both are static.
+//
+// TileView needs this because it discards the input Kokkos::View's
+// extents type, and only keeps the tile index space type and the tile
+// shape.  If TileView ever needs to support input extents that aren't
+// elementwise divisible by the tile shape (which it would do via
+// masked loads and stores), it needs some way to hang on to the input
+// Kokkos::View's extents type.
+template <class Extents1, class Extents2>
+using CudaTileExtentsProduct =
+    decltype(cuda_tile_extents_product<Extents1, Extents2>(
+        std::make_index_sequence<Extents1::rank()>{}));
+
+// Declared, but never defined -- only usable in an unevaluated context
+// (e.g., decltype) -- so that its trailing return type can be extracted
+// as a cuda::tiles::extents specialization via
+// CudaTileIndexSpaceExtentsFromView.  The requires clause rejects
+// ViewType/TileShape combinations where a static View extent isn't an
+// exact multiple of the corresponding tile shape extent, rather than
+// silently truncating; a dynamic View extent is checked at run time
+// instead, in TileView's constructor.
+template <class ViewType, class TileShape, size_t... Ranks>
+  requires ((ViewType::static_extent(Ranks) == 0 ||
+             ViewType::static_extent(Ranks) % TileShape::static_extent(Ranks) ==
+                 0) &&
+            ...)
+auto cuda_tile_index_space_extents_from_view(std::index_sequence<Ranks...>)
+    -> ct::extents<uint32_t,
+                    (ViewType::static_extent(Ranks) == 0
+                         ? ct::dynamic_extent
+                         : ViewType::static_extent(Ranks) /
+                               TileShape::static_extent(Ranks))...>;
+
+// The cuda::tiles::extents specialization for the tile index space of a
+// View partitioned according to TileShape: static in each dimension
+// where ViewType has a static extent (in which case that extent must be
+// an exact multiple of TileShape's corresponding extent), and dynamic
+// elsewhere.  TileView's CTAD deduction guide uses this to deduce
+// Extents from the View and tile shape passed to TileView's constructor.
+template <class ViewType, class TileShape>
+using CudaTileIndexSpaceExtentsFromView =
+    decltype(cuda_tile_index_space_extents_from_view<ViewType, TileShape>(
+        std::make_index_sequence<ViewType::rank()>{}));
+
 // Returns whether each of the View's runtime extents is evenly
 // divisible by the corresponding (static) extent of TileShapeType.
 // Tile loads and stores indices in units of whole tiles, so a View
@@ -99,7 +160,11 @@ constexpr bool tile_shape_extents_all_nonzero(std::index_sequence<Ranks...>) {
 ///
 /// \tparam Extents cuda::tiles::extents specialization describing the
 ///    "tile index space type," that is, the type of the index space
-///    over which tile loads and stores iterate
+///    over which tile loads and stores iterate.  This is the space of
+///    tile indices (how many tiles fit along each dimension), not the
+///    space of element indices into the underlying Kokkos::View; e.g.,
+///    for a View with 256 elements partitioned into tiles of shape
+///    <8>, Extents' (runtime) extent is 32, not 256.
 ///
 /// Idiomatic construction happens on host from a Kokkos::View (the
 /// array to partition) and a cuda::tiles::shape (the shape of each
@@ -120,13 +185,16 @@ class TileView {
   using element_type    = typename TileType::element_type;
   using value_type      = std::remove_cv_t<element_type>;
   using tile_shape_type = typename TileType::shape_type;
-  using extents_type    = Extents;
-  using strides_type    = typename Impl::AllDynamicCudaTileExtents<
+  // extents_type is the tile index space, not the input index space.
+  using extents_type = Extents;
+  using strides_type = typename Impl::AllDynamicCudaTileExtents<
       extents_type::rank()>::type;
   using layout_type  = Impl::ct::layout_strided<strides_type>;
-  using mapping_type = typename layout_type::template mapping<extents_type>;
-  using span_type =
-      Impl::ct::tensor_span<element_type, extents_type, layout_type>;
+  using mapping_type = typename layout_type::template mapping<
+      Impl::CudaTileExtentsProduct<extents_type, tile_shape_type>>;
+  using span_type = Impl::ct::tensor_span<
+      element_type, Impl::CudaTileExtentsProduct<extents_type, tile_shape_type>,
+      layout_type>;
   using partition_view_type =
       Impl::ct::partition_view<span_type, tile_shape_type>;
 
@@ -154,7 +222,8 @@ class TileView {
   TileView(ViewType const& view, [[maybe_unused]] tile_shape_type ts) noexcept
       : span_(view.data(),
               mapping_type(
-                  Impl::cuda_tile_extents_from_view<extents_type>(
+                  Impl::cuda_tile_extents_from_view<
+                      Impl::CudaTileExtentsProduct<extents_type, tile_shape_type>>(
                       view, std::make_index_sequence<ViewType::rank()>{}),
                   Impl::cuda_tile_strides_from_view<strides_type>(
                       view, std::make_index_sequence<ViewType::rank()>{}))) {
@@ -226,10 +295,13 @@ class TileView {
 
 // TileView needs a deduction guide because the constructor's
 // parameters don't have the same types as its template parameters.
+// This deduces Extents as the View's tile index space: a static extent
+// (the View's static extent divided by TileShape's) wherever the View
+// itself has a static extent, and a dynamic extent elsewhere.
 template <class ViewType, class TileShape>
 TileView(ViewType const&, TileShape) -> TileView<
     Impl::ct::tile<typename ViewType::non_const_value_type, TileShape>,
-    typename Impl::AllDynamicCudaTileExtents<ViewType::rank()>::type>;
+    Impl::CudaTileIndexSpaceExtentsFromView<ViewType, TileShape>>;
 
 }  // namespace Kokkos
 
