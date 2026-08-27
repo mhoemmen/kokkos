@@ -181,19 +181,19 @@ struct TileViewVectorAddDriver {
   void operator()() const {
     namespace ct = cuda::tiles;
 
-    TileViewType::partition_view_type a_view = a;
-    TileViewType::partition_view_type b_view = b;
-    TileViewType::partition_view_type o_view = out;
-
+    // Calling load/store directly on TileView (rather than first
+    // converting to a cuda::tiles::partition_view) exercises the member
+    // functions TileView forwards from partition_view.  N is an exact
+    // multiple of the tile size, so every tile is fully in bounds and
+    // plain (unmasked) load/store are safe to use.
     constexpr std::size_t tile_size = 8;
     const size_t n_tile             = n / tile_size;
     const size_t n_tile_block       = n_tile / ct::num_blocks().x;
     const size_t tile_start         = ct::bid().x * n_tile_block;
     const size_t tile_end           = tile_start + n_tile_block;
     for (size_t tile_index : ct::irange(tile_start, tile_end)) {
-      auto a_plus_b =
-          a_view.load_masked(tile_index) + b_view.load_masked(tile_index);
-      o_view.store_masked(a_plus_b, tile_index);
+      auto a_plus_b = a.load(tile_index) + b.load(tile_index);
+      out.store(a_plus_b, tile_index);
     }
   }
 };
@@ -260,19 +260,19 @@ struct TileViewNoncontiguousRank1AddDriver {
   void operator()() const {
     namespace ct = cuda::tiles;
 
-    TileViewType::partition_view_type a_view = a;
-    TileViewType::partition_view_type b_view = b;
-    TileViewType::partition_view_type o_view = out;
-
+    // Calling load/store directly on TileView (rather than first
+    // converting to a cuda::tiles::partition_view) exercises the member
+    // functions TileView forwards from partition_view.  N is an exact
+    // multiple of the tile size, so every tile is fully in bounds and
+    // plain (unmasked) load/store are safe to use.
     constexpr std::size_t tile_size = 8;
     const size_t n_tile             = n / tile_size;
     const size_t n_tile_block       = n_tile / ct::num_blocks().x;
     const size_t tile_start         = ct::bid().x * n_tile_block;
     const size_t tile_end           = tile_start + n_tile_block;
     for (size_t tile_index : ct::irange(tile_start, tile_end)) {
-      auto a_plus_b =
-          a_view.load_masked(tile_index) + b_view.load_masked(tile_index);
-      o_view.store_masked(a_plus_b, tile_index);
+      auto a_plus_b = a.load(tile_index) + b.load(tile_index);
+      out.store(a_plus_b, tile_index);
     }
   }
 };
@@ -353,10 +353,12 @@ struct TileViewNoncontiguousRank2AddDriver {
   void operator()() const {
     namespace ct = cuda::tiles;
 
-    TileViewType::partition_view_type a_view = a;
-    TileViewType::partition_view_type b_view = b;
-    TileViewType::partition_view_type o_view = out;
-
+    // Calling load/store directly on TileView (rather than first
+    // converting to a cuda::tiles::partition_view) exercises the member
+    // functions TileView forwards from partition_view.  N is an exact
+    // multiple of the tile size, so every tile is fully in bounds and
+    // plain (unmasked) load/store are safe to use.
+    //
     // The second dimension has static extent 4, which fits in a single
     // tile of shape <8, 4>; only the first dimension needs to be tiled.
     constexpr std::size_t tile_size = 8;
@@ -365,9 +367,8 @@ struct TileViewNoncontiguousRank2AddDriver {
     const size_t tile_start         = ct::bid().x * n_tile_block;
     const size_t tile_end           = tile_start + n_tile_block;
     for (size_t tile_index : ct::irange(tile_start, tile_end)) {
-      auto a_plus_b = a_view.load_masked(tile_index, 0) +
-                       b_view.load_masked(tile_index, 0);
-      o_view.store_masked(a_plus_b, tile_index, 0);
+      auto a_plus_b = a.load(tile_index, 0) + b.load(tile_index, 0);
+      out.store(a_plus_b, tile_index, 0);
     }
   }
 };
