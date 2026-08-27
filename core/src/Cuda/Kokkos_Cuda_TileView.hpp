@@ -5,6 +5,7 @@
 #define KOKKOS_CUDA_TILEVIEW_HPP
 
 #include <Kokkos_Macros.hpp>
+#include <Kokkos_Assert.hpp>
 
 #ifdef KOKKOS_ENABLE_CUDA_TILE
 
@@ -67,6 +68,27 @@ struct AllDynamicCudaTileExtents<Rank, std::index_sequence<Ranks...>> {
   using type = ct::extents<uint32_t, ((void)Ranks, ct::dynamic_extent)...>;
 };
 
+// Returns whether each of the View's runtime extents is evenly
+// divisible by the corresponding (static) extent of TileShapeType.
+// Tile loads and stores indices in units of whole tiles, so a View
+// whose extents aren't multiples of the tile shape would leave a
+// partial tile at the boundary.  partition_view can handle that with
+// load_masked and store_masked, but we don't want to require that
+// TileView be able to handle that case for now.
+template <class TileShapeType, class ViewType, size_t... Ranks>
+KOKKOS_INLINE_FUNCTION bool view_extents_evenly_divisible_by_tile_shape(
+    ViewType const& view, std::index_sequence<Ranks...>) {
+  return ((view.extent(Ranks) % TileShapeType::static_extent(Ranks) == 0) &&
+          ...);
+}
+
+// Returns whether all of TileShapeType's (static) extents are nonzero.
+// A tile shape with a zero extent can't represent any tiles.
+template <class TileShapeType, size_t... Ranks>
+constexpr bool tile_shape_extents_all_nonzero(std::index_sequence<Ranks...>) {
+  return ((TileShapeType::static_extent(Ranks) != 0) && ...);
+}
+
 }  // namespace Impl
 
 /// \brief Applies a tile partitioning to a Kokkos::View
@@ -117,10 +139,19 @@ class TileView {
   using view_shape_type = typename partition_view_type::view_shape_type;
   using view_tile_type  = typename partition_view_type::view_tile_type;
 
-  // Construct from a Kokkos::View and a tile shape on the host.
+  /// \brief Construct from a Kokkos::View and a tile shape on the host.
+  ///
+  /// \param view Kokkos::View such that each extent is a nonzero
+  ///   multiple of the corresponding extent of \c ts
+  ///
+  /// \param ts cuda::tiles::shape whose extents are all nonzero
+  ///
+  /// For now, Kokkos requires that each extent of \c view is a
+  /// nonzero multiple of each extent of \c ts.  This lets Kokkos
+  /// defer providing masked variants of loads and stores.
   template <class ViewType>
     requires(Kokkos::is_view_v<ViewType>)
-  TileView(ViewType const& view, tile_shape_type) noexcept
+  TileView(ViewType const& view, [[maybe_unused]] tile_shape_type ts) noexcept
       : span_(view.data(),
               mapping_type(
                   Impl::cuda_tile_extents_from_view<extents_type>(
@@ -134,6 +165,13 @@ class TileView {
         std::is_same_v<typename ViewType::non_const_value_type, value_type>,
         "Kokkos::TileView: View's value_type must match TileType's "
         "element_type");
+    static_assert(
+        Impl::tile_shape_extents_all_nonzero<tile_shape_type>(
+            std::make_index_sequence<tile_shape_type::rank()>{}),
+        "Kokkos::TileView: TileShape's extents must all be nonzero");
+    KOKKOS_ASSERT(
+        (Impl::view_extents_evenly_divisible_by_tile_shape<tile_shape_type>(
+            view, std::make_index_sequence<ViewType::rank()>{})));
   }
 
   KOKKOS_EXPERIMENTAL_TILE_FUNCTION
