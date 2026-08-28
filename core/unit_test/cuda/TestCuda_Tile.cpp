@@ -21,56 +21,137 @@ import kokkos.core;
 
 namespace Test {
 
-template<size_t... Indices>
-constexpr
-cuda::tiles::extents<uint32_t, ((void) Indices, cuda::tiles::dynamic_extent)...>
-all_dynamic_extents_impl(std::index_sequence<Indices...>) {
-  return {};
+// This struct implements the minimal compatibility requirements for Driver
+// handed to the implementation tile launch function
+struct TileVectorAddDummyDriver {
+  float* a;
+  float* b;
+  float* out;
+  std::size_t n;
+
+  KOKKOS_EXPERIMENTAL_TILE_FUNCTION
+  void operator()() const {
+    namespace ct = cuda::tiles;
+    using namespace ct::literals;
+
+    constexpr auto tile_size = 8_ic;
+    auto shape               = ct::shape{tile_size};
+    auto extent              = ct::extents{n};
+
+    auto a_view = ct::partition_view{ct::tensor_span{a, extent}, shape};
+    auto b_view = ct::partition_view{ct::tensor_span{b, extent}, shape};
+    auto o_view = ct::partition_view{ct::tensor_span{out, extent}, shape};
+
+    const size_t n_tile       = n / tile_size;
+    const size_t n_tile_block = n_tile / ct::num_blocks().x;
+    const size_t tile_start   = ct::bid().x * n_tile_block;
+    const size_t tile_end     = tile_start + n_tile_block;
+    for (size_t tile_index : ct::irange(tile_start, tile_end)) {
+      auto a_plus_b =
+          a_view.load_masked(tile_index) + b_view.load_masked(tile_index);
+      o_view.store_masked(a_plus_b, tile_index);
+    }
+  }
+};
+
+void cuda_tile_kernel_invoker() {
+  constexpr std::size_t N = 256;
+
+  Kokkos::View<float*, Kokkos::Cuda> a("A", N);
+  Kokkos::View<float*, Kokkos::Cuda> b("A", N);
+  Kokkos::View<float*, Kokkos::Cuda> out("A", N);
+
+  Kokkos::Cuda cuda_instance;
+
+  Kokkos::parallel_for(
+      N, KOKKOS_LAMBDA(int i) {
+        a(i) = i;
+        b(i) = 2 * i;
+      });
+
+  using impl_launch_invoker = Kokkos::Impl::CudaParallelLaunchTileKernelInvoker<
+      TileVectorAddDummyDriver,
+      Kokkos::Impl::CudaLaunchMechanism::GlobalMemory>;
+
+  TileVectorAddDummyDriver driver{a.data(), b.data(), out.data(), N};
+
+  dim3 grid{1, 1, 1};
+  impl_launch_invoker::invoke_kernel(
+      driver, grid, cuda_instance.impl_internal_space_instance());
+
+  cuda_instance.fence();
+
+  auto h_out = Kokkos::create_mirror_view_and_copy(out);
+  int errors = 0;
+  for (std::size_t i = 0; i < N; ++i) {
+    if (h_out(i) != float(3 * i)) errors++;
+  }
+  ASSERT_EQ(errors, 0);
 }
 
-template<size_t Rank>
-constexpr decltype(all_dynamic_extents_impl(std::make_index_sequence<Rank>()))
-all_dynamic_extents() {
-  return {};
+TEST(cuda, tile_kernel_invoker) { cuda_tile_kernel_invoker(); }
+
+template <size_t TileSize>
+struct TileVectorAddFunctor {
+  float* a;
+  float* b;
+  float* out;
+  int N, M;
+
+  KOKKOS_EXPERIMENTAL_TILE_FUNCTION
+  void operator()(int i, int j) const {
+    namespace ct = cuda::tiles;
+    using namespace ct::literals;
+
+    auto shape  = ct::shape<TileSize, TileSize>{};
+    auto extent = ct::extents{N, M};
+
+    auto a_view = ct::partition_view{ct::tensor_span{a, extent}, shape};
+    auto b_view = ct::partition_view{ct::tensor_span{b, extent}, shape};
+    auto o_view = ct::partition_view{ct::tensor_span{out, extent}, shape};
+
+    auto a_plus_b = a_view.load(i, j) + b_view.load(i, j);
+    o_view.store(a_plus_b, i, j);
+  }
+};
+
+void cuda_tile_parallel_for() {
+  int N = 32;
+  int M = 24;
+
+  constexpr int tile_size = 8;
+
+  Kokkos::View<float**, Kokkos::Cuda> a("A", N, M);
+  Kokkos::View<float**, Kokkos::Cuda> b("B", N, M);
+  Kokkos::View<float**, Kokkos::Cuda> out("Out", N, M);
+
+  Kokkos::Cuda cuda_instance;
+
+  Kokkos::parallel_for(
+      Kokkos::MDRangePolicy<Kokkos::Cuda, Kokkos::Rank<2>>(cuda_instance,
+                                                           {0, 0}, {N, M}),
+      KOKKOS_LAMBDA(int i, int j) {
+        a(i, j) = 1000 * i + j;
+        b(i, j) = 2000 * i + 2 * j;
+      });
+
+  Kokkos::parallel_for(
+      Kokkos::Experimental::TileMDRangePolicy<Kokkos::Cuda, Kokkos::Rank<2>>(
+          cuda_instance, {0, 0}, {N / tile_size, M / tile_size}),
+      TileVectorAddFunctor<tile_size>{a.data(), b.data(), out.data(), N, M});
+
+  int errors;
+  Kokkos::parallel_reduce(
+      Kokkos::MDRangePolicy<Kokkos::Cuda, Kokkos::Rank<2>>(cuda_instance,
+                                                           {0, 0}, {N, M}),
+      KOKKOS_LAMBDA(int i, int j, int& error) {
+        if (out(i, j) != 3000 * i + 3 * j) error++;
+      },
+      errors);
+  ASSERT_EQ(errors, 0);
 }
 
-template<size_t Rank>
-using all_dynamic_extents_t = decltype(all_dynamic_extents<Rank>());
-
-static_assert(
-    std::is_same_v<
-        decltype(Kokkos::TileView(
-            std::declval<Kokkos::View<float*, Kokkos::Cuda> const&>(),
-            cuda::tiles::shape<8>{}))::extents_type,
-        all_dynamic_extents_t<1>>);
-
-static_assert(
-    std::is_same_v<
-        decltype(Kokkos::TileView(
-            std::declval<Kokkos::View<float***, Kokkos::Cuda> const&>(),
-            cuda::tiles::shape<8, 16, 32>{}))::extents_type,
-        all_dynamic_extents_t<3>>);
-
-static_assert(
-    std::is_same_v<
-        decltype(Kokkos::TileView(
-            std::declval<Kokkos::View<float[32], Kokkos::Cuda> const&>(),
-            cuda::tiles::shape<8>{}))::extents_type,
-        cuda::tiles::extents<uint32_t, 4>>);
-
-static_assert(
-    std::is_same_v<
-        decltype(Kokkos::TileView(
-            std::declval<Kokkos::View<float[128][32], Kokkos::Cuda> const&>(),
-            cuda::tiles::shape<2, 8>{}))::extents_type,
-        cuda::tiles::extents<uint32_t, 64, 4>>);
-
-static_assert(
-    std::is_same_v<
-        decltype(Kokkos::TileView(
-            std::declval<Kokkos::View<float*[128], Kokkos::Cuda> const&>(),
-            cuda::tiles::shape<8, 4>{}))::extents_type,
-        cuda::tiles::extents<uint32_t, cuda::tiles::dynamic_extent, 32>>);
+TEST(cuda, tile_parallel_for) { cuda_tile_parallel_for(); }
 
 __tile_global__ void tile_vector_add(float* __restrict__ a,
                                      float* __restrict__ b,
@@ -145,84 +226,64 @@ TEST(cuda, tile_vector_add) {
   KOKKOS_IMPL_CUDA_SAFE_CALL(cudaFree(d_out));
 }
 
-// This struct implements the minimal compatibility requirements for Driver
-// handed to the implementation tile launch function
-struct TileVectorAddDummyDriver {
-  float* a;
-  float* b;
-  float* out;
-  std::size_t n;
+// Test compile-time properties of Kokkos::TileView.
 
-  KOKKOS_EXPERIMENTAL_TILE_FUNCTION
-  void operator()() const {
-    namespace ct = cuda::tiles;
-    using namespace ct::literals;
-
-    constexpr auto tile_size = 8_ic;
-    auto shape               = ct::shape{tile_size};
-    auto extent              = ct::extents{n};
-
-    auto a_view = ct::partition_view{ct::tensor_span{a, extent}, shape};
-    auto b_view = ct::partition_view{ct::tensor_span{b, extent}, shape};
-    auto o_view = ct::partition_view{ct::tensor_span{out, extent}, shape};
-
-    const size_t n_tile       = n / tile_size;
-    const size_t n_tile_block = n_tile / ct::num_blocks().x;
-    const size_t tile_start   = ct::bid().x * n_tile_block;
-    const size_t tile_end     = tile_start + n_tile_block;
-    for (size_t tile_index : ct::irange(tile_start, tile_end)) {
-      auto a_plus_b =
-          a_view.load_masked(tile_index) + b_view.load_masked(tile_index);
-      o_view.store_masked(a_plus_b, tile_index);
-    }
-  }
-};
-
-void cuda_tile_kernel_invoker() {
-  constexpr std::size_t N = 256;
-
-  Kokkos::View<float*, Kokkos::Cuda> a("A", N);
-  Kokkos::View<float*, Kokkos::Cuda> b("A", N);
-  Kokkos::View<float*, Kokkos::Cuda> out("A", N);
-
-  Kokkos::Cuda cuda_instance;
-
-  Kokkos::parallel_for(
-      N, KOKKOS_LAMBDA(int i) {
-        a(i) = i;
-        b(i) = 2 * i;
-      });
-
-  using impl_launch_invoker = Kokkos::Impl::CudaParallelLaunchTileKernelInvoker<
-      TileVectorAddDummyDriver,
-      Kokkos::Impl::CudaLaunchMechanism::GlobalMemory>;
-
-  TileVectorAddDummyDriver driver{a.data(), b.data(), out.data(), N};
-
-  dim3 grid{1, 1, 1};
-  impl_launch_invoker::invoke_kernel(
-      driver, grid, cuda_instance.impl_internal_space_instance());
-
-  cuda_instance.fence();
-
-  auto h_out = Kokkos::create_mirror_view_and_copy(out);
-  int errors = 0;
-  for (std::size_t i = 0; i < N; ++i) {
-    if (h_out(i) != float(3 * i)) errors++;
-  }
-  ASSERT_EQ(errors, 0);
+template<size_t... Indices>
+constexpr
+cuda::tiles::extents<uint32_t, ((void) Indices, cuda::tiles::dynamic_extent)...>
+all_dynamic_extents_impl(std::index_sequence<Indices...>) {
+  return {};
 }
 
-TEST(cuda, tile_kernel_invoker) { cuda_tile_kernel_invoker(); }
+template<size_t Rank>
+constexpr decltype(all_dynamic_extents_impl(std::make_index_sequence<Rank>()))
+all_dynamic_extents() {
+  return {};
+}
 
-// This struct shows how Kokkos::TileView bridges Kokkos::View data with
-// cuTile's partition_view inside a tile kernel driver.  Each TileView is
-// constructed on the host from a Kokkos::View, then embedded by value in
-// the Driver struct that gets memcpy'd to device scratch memory.
+template<size_t Rank>
+using all_dynamic_extents_t = decltype(all_dynamic_extents<Rank>());
+
+static_assert(
+    std::is_same_v<
+        decltype(Kokkos::TileView(
+            std::declval<Kokkos::View<float*, Kokkos::Cuda> const&>(),
+            cuda::tiles::shape<8>{}))::extents_type,
+        all_dynamic_extents_t<1>>);
+
+static_assert(
+    std::is_same_v<
+        decltype(Kokkos::TileView(
+            std::declval<Kokkos::View<float***, Kokkos::Cuda> const&>(),
+            cuda::tiles::shape<8, 16, 32>{}))::extents_type,
+        all_dynamic_extents_t<3>>);
+
+static_assert(
+    std::is_same_v<
+        decltype(Kokkos::TileView(
+            std::declval<Kokkos::View<float[32], Kokkos::Cuda> const&>(),
+            cuda::tiles::shape<8>{}))::extents_type,
+        cuda::tiles::extents<uint32_t, 4>>);
+
+static_assert(
+    std::is_same_v<
+        decltype(Kokkos::TileView(
+            std::declval<Kokkos::View<float[128][32], Kokkos::Cuda> const&>(),
+            cuda::tiles::shape<2, 8>{}))::extents_type,
+        cuda::tiles::extents<uint32_t, 64, 4>>);
+
+static_assert(
+    std::is_same_v<
+        decltype(Kokkos::TileView(
+            std::declval<Kokkos::View<float*[128], Kokkos::Cuda> const&>(),
+            cuda::tiles::shape<8, 4>{}))::extents_type,
+        cuda::tiles::extents<uint32_t, cuda::tiles::dynamic_extent, 32>>);
+
+// Exercise Kokkos::TileView with rank-1 Kokkos::View objects.
 struct TileViewVectorAddDriver {
-  using ShapeType     = cuda::tiles::shape<8>;
-  using TileType      = cuda::tiles::tile<float, ShapeType>;
-  using ExtentsType   = cuda::tiles::extents<uint32_t, cuda::tiles::dynamic_extent>;
+  using ShapeType    = cuda::tiles::shape<8>;
+  using TileType     = cuda::tiles::tile<float, ShapeType>;
+  using ExtentsType  = cuda::tiles::extents<uint32_t, cuda::tiles::dynamic_extent>;
   using TileViewType = Kokkos::TileView<TileType, ExtentsType>;
 
   TileViewType a;
@@ -266,12 +327,10 @@ void cuda_tile_view_kernel_invoker() {
         b(i) = 2 * i;
       });
 
-  // CTAD deduces Kokkos::TileView's template arguments from the View and
-  // shape arguments here.
   TileViewVectorAddDriver::ShapeType shape;
   TileViewVectorAddDriver driver{Kokkos::TileView(a, shape),
-                                  Kokkos::TileView(b, shape),
-                                  Kokkos::TileView(out, shape), N};
+                                 Kokkos::TileView(b, shape),
+                                 Kokkos::TileView(out, shape), N};
 
   using impl_launch_invoker = Kokkos::Impl::CudaParallelLaunchTileKernelInvoker<
       TileViewVectorAddDriver,
@@ -293,9 +352,8 @@ void cuda_tile_view_kernel_invoker() {
 
 TEST(cuda, tile_view_vector_add) { cuda_tile_view_kernel_invoker(); }
 
-// Exercises Kokkos::TileView with a noncontiguous, rank-1 Kokkos::View:
-// a and b are columns of rank-2 backing views, picked out with a subview,
-// so consecutive elements are actually two floats apart in memory.
+// Exercise Kokkos::TileView with a noncontiguous, rank-1 Kokkos::View.
+// a and b are nonconsecutive columns of rank-2 Views.
 struct TileViewNoncontiguousRank1AddDriver {
   using BackingViewType =
       Kokkos::View<float* [2], Kokkos::LayoutRight, Kokkos::Cuda>;
@@ -335,8 +393,7 @@ void cuda_tile_view_noncontiguous_rank1_add() {
 
   TileViewNoncontiguousRank1AddDriver::BackingViewType a_full("a_full", N);
   TileViewNoncontiguousRank1AddDriver::BackingViewType b_full("b_full", N);
-  TileViewNoncontiguousRank1AddDriver::BackingViewType out_full("out_full",
-                                                                 N);
+  TileViewNoncontiguousRank1AddDriver::BackingViewType out_full("out_full", N);
 
   Kokkos::Cuda cuda_instance;
 
@@ -384,10 +441,7 @@ TEST(cuda, tile_view_noncontiguous_rank1_add) {
   cuda_tile_view_noncontiguous_rank1_add();
 }
 
-// Exercises Kokkos::TileView with a noncontiguous, rank-2 Kokkos::View:
-// a and b are 2-D "slabs" of rank-3 backing views, picked out with a
-// subview, so consecutive elements along the second dimension are two
-// floats apart in memory.
+// Exercise Kokkos::TileView with noncontiguous rank-2 Kokkos::View.
 struct TileViewNoncontiguousRank2AddDriver {
   using BackingViewType =
       Kokkos::View<float* [4][2], Kokkos::LayoutRight, Kokkos::Cuda>;
@@ -411,14 +465,6 @@ struct TileViewNoncontiguousRank2AddDriver {
   void operator()() const {
     namespace ct = cuda::tiles;
 
-    // Calling load/store directly on TileView (rather than first
-    // converting to a cuda::tiles::partition_view) exercises the member
-    // functions TileView forwards from partition_view.  N is an exact
-    // multiple of the tile size, so every tile is fully in bounds and
-    // plain (unmasked) load/store are safe to use.
-    //
-    // The second dimension has static extent 4, which fits in a single
-    // tile of shape <8, 4>; only the first dimension needs to be tiled.
     constexpr std::size_t tile_size = 8;
     const size_t n_tile             = n / tile_size;
     const size_t n_tile_block       = n_tile / ct::num_blocks().x;
@@ -436,8 +482,7 @@ void cuda_tile_view_noncontiguous_rank2_add() {
 
   TileViewNoncontiguousRank2AddDriver::BackingViewType a_full("a_full", N);
   TileViewNoncontiguousRank2AddDriver::BackingViewType b_full("b_full", N);
-  TileViewNoncontiguousRank2AddDriver::BackingViewType out_full("out_full",
-                                                                 N);
+  TileViewNoncontiguousRank2AddDriver::BackingViewType out_full("out_full", N);
 
   Kokkos::Cuda cuda_instance;
 
@@ -489,11 +534,8 @@ TEST(cuda, tile_view_noncontiguous_rank2_add) {
   cuda_tile_view_noncontiguous_rank2_add();
 }
 
-// Exercises Kokkos::TileView with a fully static, rank-1 Kokkos::View:
-// TileView's deduced Extents (tile index space) is fully static too, and
-// its runtime extent (4 tiles) has to be recovered correctly purely from
-// compile-time information -- there's no dynamic View extent to fall
-// back on.
+// Exercise Kokkos::TileView with a fully static, rank-1 Kokkos::View.
+
 struct TileViewStaticExtentAddDriver {
   using ViewType    = Kokkos::View<float[32], Kokkos::LayoutRight, Kokkos::Cuda>;
   using ShapeType   = cuda::tiles::shape<8>;
@@ -560,11 +602,10 @@ void cuda_tile_view_static_extent_add() {
 
 TEST(cuda, tile_view_static_extent_add) { cuda_tile_view_static_extent_add(); }
 
-// Exercises Kokkos::TileView with a rank-2 Kokkos::View whose first
+// Exercise Kokkos::TileView with a rank-2 Kokkos::View whose first
 // dimension is dynamic and whose second dimension is static, where the
-// static dimension spans *more than one* tile (16 / 4 = 4 tiles) --
-// unlike cuda_tile_view_noncontiguous_rank2_add above, whose static
-// dimension is exactly one tile wide.
+// static dimension spans *more than one* tile (16 / 4 = 4 tiles).
+
 struct TileViewMultiTileStaticDimAddDriver {
   using ViewType =
       Kokkos::View<float* [16], Kokkos::LayoutRight, Kokkos::Cuda>;
@@ -645,13 +686,9 @@ TEST(cuda, tile_view_multi_tile_static_dim_add) {
   cuda_tile_view_multi_tile_static_dim_add();
 }
 
-// This driver is templated on the "view-like" type used for its a/b/out
-// members, and its operator() only ever calls .load(idx...) and
-// .store(tile, idx...) on them.  Both cuda::tiles::partition_view and
-// Kokkos::TileView implement that interface, so this same driver
-// template -- unmodified -- can be instantiated with either one.  That's
-// exactly what it means for TileView to be usable in place of a
-// partition_view for load and store operations.
+// Test that Kokkos::TileView implements the same load and store
+// interface as cuda::tiles::partition_view.
+
 template <class ViewLikeType>
 struct GenericVectorAddDriver {
   ViewLikeType a;
@@ -708,18 +745,13 @@ void cuda_tile_view_substitutes_for_partition_view() {
         b(i) = 2 * i;
       });
 
-  // Run the generic driver with Kokkos::TileView, built on the host from
-  // Kokkos::Views via CTAD.
+  // Run the generic driver with Kokkos::TileView.
   cuda::tiles::shape<8> shape;
   run_generic_vector_add(Kokkos::TileView(a, shape), Kokkos::TileView(b, shape),
                           Kokkos::TileView(out_via_tile_view, shape), N,
                           cuda_instance);
 
-  // Run the exact same generic driver template, instantiated instead
-  // with cuda::tiles::partition_view built directly from raw device
-  // pointers (mirroring the low-level cuda.tile_vector_add test above),
-  // to prove Kokkos::TileView is a drop-in substitute for
-  // cuda::tiles::partition_view.
+  // Run the generic driver with cuda::tiles::partition_view.
   namespace ct = cuda::tiles;
   using ExtentsType = ct::extents<uint32_t, ct::dynamic_extent>;
   using SpanType    = ct::tensor_span<float, ExtentsType>;
