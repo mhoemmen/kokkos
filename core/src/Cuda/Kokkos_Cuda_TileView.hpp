@@ -34,14 +34,8 @@ namespace Impl {
 
 namespace ct = cuda::tiles;
 
-// Builds an instance of TargetExtents (a cuda::tiles::extents
-// specialization, possibly with some static dimensions) matching a View's
-// rank, from the View's runtime extents.  This works regardless of which
-// of TargetExtents's dimensions are static, because
-// cuda::tiles::extents's constructor accepts either exactly
-// rank_dynamic() values (one per dynamic dimension) or exactly rank()
-// values (one per dimension, ignoring the ones at static positions); we
-// always supply rank() values here.
+// Returns the TargetExtents (cuda::tiles::extents) object with the
+// same extents as the input Kokkos::View's extents.
 template <class TargetExtents, class ViewType, size_t... Ranks>
 KOKKOS_INLINE_FUNCTION TargetExtents cuda_tile_extents_from_view(
     ViewType const& view, std::index_sequence<Ranks...>) {
@@ -49,8 +43,8 @@ KOKKOS_INLINE_FUNCTION TargetExtents cuda_tile_extents_from_view(
       static_cast<typename TargetExtents::index_type>(view.extent(Ranks))...);
 }
 
-// Same as cuda_tile_extents_from_view, but pulls values from the View's
-// runtime strides instead of its extents.
+// Returns the TargetExtents (cuda::tiles::extents) object with the
+// same extents as the input Kokkos::View's strides.
 template <class TargetExtents, class ViewType, size_t... Ranks>
 KOKKOS_INLINE_FUNCTION TargetExtents cuda_tile_strides_from_view(
     ViewType const& view, std::index_sequence<Ranks...>) {
@@ -58,15 +52,16 @@ KOKKOS_INLINE_FUNCTION TargetExtents cuda_tile_strides_from_view(
       static_cast<typename TargetExtents::index_type>(view.stride(Ranks))...);
 }
 
-// A cuda::tiles::extents specialization with the given rank, all of whose
-// dimensions are dynamic.
-template <size_t Rank, class Ranks = std::make_index_sequence<Rank>>
-struct AllDynamicCudaTileExtents;
 
-template <size_t Rank, size_t... Ranks>
-struct AllDynamicCudaTileExtents<Rank, std::index_sequence<Ranks...>> {
-  using type = ct::extents<uint32_t, ((void)Ranks, ct::dynamic_extent)...>;
-};
+template <size_t... Ranks>
+constexpr auto cuda_tile_dextents_impl(std::index_sequence<Ranks...>) ->
+  ct::extents<uint32_t, ((void)Ranks, ct::dynamic_extent)...>;
+
+// cuda::tiles::extents specialization with rank Rank,
+// all of whose extents are dynamic.
+template <size_t Rank>
+using cuda_tile_dextents =
+  decltype(cuda_tile_dextents_impl(std::make_index_sequence<Rank>()));
 
 // Declared, but never defined -- only usable in an unevaluated context
 // (e.g., decltype) -- so that its trailing return type can be extracted
@@ -76,7 +71,7 @@ struct AllDynamicCudaTileExtents<Rank, std::index_sequence<Ranks...>> {
 // remainder -- multiplication is always exact, unlike the division in
 // cuda_tile_index_space_extents_from_view below.
 template <class Extents1, class Extents2, size_t... Ranks>
-auto cuda_tile_extents_product(std::index_sequence<Ranks...>) -> ct::extents<
+constexpr auto cuda_tile_extents_product(std::index_sequence<Ranks...>) -> ct::extents<
     uint32_t,
     (Extents1::static_extent(Ranks) == ct::dynamic_extent ||
              Extents2::static_extent(Ranks) == ct::dynamic_extent
@@ -111,7 +106,7 @@ template <class ViewType, class TileShape, size_t... Ranks>
              ViewType::static_extent(Ranks) % TileShape::static_extent(Ranks) ==
                  0) &&
             ...)
-auto cuda_tile_index_space_extents_from_view(std::index_sequence<Ranks...>)
+constexpr auto cuda_tile_index_space_extents_from_view(std::index_sequence<Ranks...>)
     -> ct::extents<uint32_t,
                     (ViewType::static_extent(Ranks) == 0
                          ? ct::dynamic_extent
@@ -166,11 +161,19 @@ constexpr bool tile_shape_extents_all_nonzero(std::index_sequence<Ranks...>) {
 ///    for a View with 256 elements partitioned into tiles of shape
 ///    <8>, Extents' (runtime) extent is 32, not 256.
 ///
-/// Idiomatic construction happens on host from a Kokkos::View (the
-/// array to partition) and a cuda::tiles::shape (the shape of each
-/// tile in the partition).  The resulting object can be cudaMemcpy'd
-/// to device for use in a Tile kernel.  There, it behaves like a
-/// cuda::tiles::partition_view.
+/// Construct this on host from a Kokkos::View (the array to
+/// partition) and a cuda::tiles::shape (the shape of each tile in the
+/// partition).  The resulting object is a nonowning view of the
+/// Kokkos::View's data.
+///
+/// The TileView object can be bytewise copied to device for use in
+/// Tile kernels.  There, it supports load and store operations, just
+/// like a cuda::tiles::partition_view.
+///
+/// TileView does not currently support partial out-of-bounds access
+/// with masked loads and stores.  The cuda::tiles::tensor_span that
+/// it exposes may thus have extents reduced to be elementwise
+/// multiples of the tile extents.
 template <class TileType, class Extents>
 class TileView {
   static_assert(Impl::ct::tile_shape<typename TileType::shape_type>,
@@ -180,28 +183,26 @@ class TileView {
                 "Kokkos::TileView: TileType's shape rank must match "
                 "Extents rank");
 
- public:
+public:
   using tile_type       = TileType;
   using element_type    = typename TileType::element_type;
   using value_type      = std::remove_cv_t<element_type>;
   using tile_shape_type = typename TileType::shape_type;
-  // extents_type is the tile index space, not the input index space.
-  using extents_type = Extents;
-  using strides_type = typename Impl::AllDynamicCudaTileExtents<
-      extents_type::rank()>::type;
+  using extents_type    = Extents;
+
+private:
+  using strides_type = Impl::cuda_tile_dextents<extents_type::rank()>;
   using layout_type  = Impl::ct::layout_strided<strides_type>;
   using mapping_type = typename layout_type::template mapping<
       Impl::CudaTileExtentsProduct<extents_type, tile_shape_type>>;
+  
+public:
   using span_type = Impl::ct::tensor_span<
-      element_type, Impl::CudaTileExtentsProduct<extents_type, tile_shape_type>,
+      element_type, typename mapping_type::extents_type,
       layout_type>;
   using partition_view_type =
       Impl::ct::partition_view<span_type, tile_shape_type>;
 
-  // The remaining public type aliases mirror
-  // cuda::tiles::partition_view's, so that TileView can be used
-  // anywhere a partition_view would be, both for type introspection and
-  // for the member functions below.
   using index_type      = typename partition_view_type::index_type;
   using rank_type       = typename partition_view_type::rank_type;
   using view_shape_type = typename partition_view_type::view_shape_type;
@@ -243,9 +244,16 @@ class TileView {
             view, std::make_index_sequence<ViewType::rank()>{})));
   }
 
+  /// \brief Underlying cuda::tiles::tensor_span that this object views
+  ///
+  /// TileView does not currently support partial out-of-bounds access
+  /// with masked loads and stores.  The tensor_span that it exposes
+  /// may thus have extents reduced to be elementwise multiples of the
+  /// tile extents.
   KOKKOS_EXPERIMENTAL_TILE_FUNCTION
   span_type span() const noexcept { return span_; }
 
+  /// \brief The tile shape
   KOKKOS_EXPERIMENTAL_TILE_FUNCTION
   tile_shape_type shape() const noexcept { return tile_shape_type{}; }
 
