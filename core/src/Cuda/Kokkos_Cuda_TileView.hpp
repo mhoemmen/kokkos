@@ -16,6 +16,7 @@
 #define KOKKOS_IMPL_PUBLIC_INCLUDE_NOTDEFINED_TILEVIEW
 #endif
 
+#include <Kokkos_Concepts.hpp>
 #include <Kokkos_Layout.hpp>
 #include <Kokkos_View.hpp>
 
@@ -161,6 +162,8 @@ constexpr bool tile_shape_extents_all_nonzero(std::index_sequence<Ranks...>) {
 ///    for a View with 256 elements partitioned into tiles of shape
 ///    <8>, Extents' (runtime) extent is 32, not 256.
 ///
+/// \tparam MemorySpace Kokkos memory space in which the data live
+///
 /// Construct this on host from a Kokkos::View (the array to
 /// partition) and a cuda::tiles::shape (the shape of each tile in the
 /// partition).  The resulting object is a nonowning view of the
@@ -174,7 +177,7 @@ constexpr bool tile_shape_extents_all_nonzero(std::index_sequence<Ranks...>) {
 /// with masked loads and stores.  The cuda::tiles::tensor_span that
 /// it exposes may thus have extents reduced to be elementwise
 /// multiples of the tile extents.
-template <class TileType, class Extents>
+template <class TileType, class Extents, Kokkos::MemorySpace MemorySpace>
 class TileView {
   static_assert(Impl::ct::tile_shape<typename TileType::shape_type>,
                 "Kokkos::TileView: TileType::shape_type must be a "
@@ -189,6 +192,7 @@ public:
   using value_type      = std::remove_cv_t<element_type>;
   using tile_shape_type = typename TileType::shape_type;
   using extents_type    = Extents;
+  using memory_space    = MemorySpace;
 
 private:
   using strides_type = Impl::cuda_tile_dextents<extents_type::rank()>;
@@ -235,6 +239,10 @@ public:
         std::is_same_v<typename ViewType::non_const_value_type, value_type>,
         "Kokkos::TileView: View's value_type must match TileType's "
         "element_type");
+    static_assert(
+        std::is_same_v<typename ViewType::memory_space, memory_space>,
+        "Kokkos::TileView: View's memory_space must match TileView's "
+        "MemorySpace");
     static_assert(
         Impl::tile_shape_extents_all_nonzero<tile_shape_type>(
             std::make_index_sequence<tile_shape_type::rank()>{}),
@@ -303,13 +311,11 @@ public:
 
 // TileView needs a deduction guide because the constructor's
 // parameters don't have the same types as its template parameters.
-// This deduces Extents as the View's tile index space: a static extent
-// (the View's static extent divided by TileShape's) wherever the View
-// itself has a static extent, and a dynamic extent elsewhere.
 template <class ViewType, class TileShape>
 TileView(ViewType const&, TileShape) -> TileView<
     Impl::ct::tile<typename ViewType::non_const_value_type, TileShape>,
-    Impl::CudaTileIndexSpaceExtentsFromView<ViewType, TileShape>>;
+    Impl::CudaTileIndexSpaceExtentsFromView<ViewType, TileShape>,
+    typename ViewType::memory_space>;
 
 }  // namespace Kokkos
 

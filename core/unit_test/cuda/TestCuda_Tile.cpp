@@ -284,7 +284,7 @@ struct TileViewVectorAddDriver {
   using ShapeType    = cuda::tiles::shape<8>;
   using TileType     = cuda::tiles::tile<float, ShapeType>;
   using ExtentsType  = cuda::tiles::extents<uint32_t, cuda::tiles::dynamic_extent>;
-  using TileViewType = Kokkos::TileView<TileType, ExtentsType>;
+  using TileViewType = Kokkos::TileView<TileType, ExtentsType, Kokkos::CudaSpace>;
 
   TileViewType a;
   TileViewType b;
@@ -360,7 +360,7 @@ struct TileViewNoncontiguousRank1AddDriver {
   using ShapeType     = cuda::tiles::shape<8>;
   using TileType      = cuda::tiles::tile<float, ShapeType>;
   using ExtentsType   = cuda::tiles::extents<uint32_t, cuda::tiles::dynamic_extent>;
-  using TileViewType = Kokkos::TileView<TileType, ExtentsType>;
+  using TileViewType = Kokkos::TileView<TileType, ExtentsType, Kokkos::CudaSpace>;
 
   TileViewType a;
   TileViewType b;
@@ -454,7 +454,7 @@ struct TileViewNoncontiguousRank2AddDriver {
   // and not dynamic).
   using ExtentsType =
       cuda::tiles::extents<uint32_t, cuda::tiles::dynamic_extent, 1>;
-  using TileViewType = Kokkos::TileView<TileType, ExtentsType>;
+  using TileViewType = Kokkos::TileView<TileType, ExtentsType, Kokkos::CudaSpace>;
 
   TileViewType a;
   TileViewType b;
@@ -541,7 +541,7 @@ struct TileViewStaticExtentAddDriver {
   using ShapeType   = cuda::tiles::shape<8>;
   using TileType    = cuda::tiles::tile<float, ShapeType>;
   using ExtentsType = cuda::tiles::extents<uint32_t, 4>;
-  using TileViewType = Kokkos::TileView<TileType, ExtentsType>;
+  using TileViewType = Kokkos::TileView<TileType, ExtentsType, Kokkos::CudaSpace>;
 
   TileViewType a;
   TileViewType b;
@@ -612,7 +612,7 @@ struct TileViewMultiTileStaticDimAddDriver {
   using ShapeType   = cuda::tiles::shape<8, 4>;
   using TileType    = cuda::tiles::tile<float, ShapeType>;
   using ExtentsType = cuda::tiles::extents<uint32_t, cuda::tiles::dynamic_extent, 4>;
-  using TileViewType = Kokkos::TileView<TileType, ExtentsType>;
+  using TileViewType = Kokkos::TileView<TileType, ExtentsType, Kokkos::CudaSpace>;
 
   TileViewType a;
   TileViewType b;
