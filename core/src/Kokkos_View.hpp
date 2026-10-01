@@ -828,7 +828,8 @@ class View
 
 #ifdef KOKKOS_IMPL_VIEW_HOOKS_NVCC_WORKAROUND
   KOKKOS_FUNCTION
-  View(View&& other) : base_t{std::move(static_cast<base_t&&>(other))} {
+  View(View&& other) noexcept
+      : base_t{std::move(static_cast<base_t&&>(other))} {
     if constexpr (has_hooks_policy) {
       KOKKOS_IF_ON_HOST((hooks_policy::move_construct(*this, other);))
     }
