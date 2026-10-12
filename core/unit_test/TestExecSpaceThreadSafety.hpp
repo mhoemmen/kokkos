@@ -16,7 +16,15 @@ import kokkos.core;
 
 namespace {
 
+#ifdef KOKKOS_ENABLE_OPENACC  // FIXME_OPENACC
+#define KOKKOS_TEST_SKIP_IF_OPENACC()                                       \
+  GTEST_SKIP()                                                              \
+      << "skipping OpenACC test since unsupported host-side atomics cause " \
+         "race conditions during shared allocation reference counting";     \
+  KOKKOS_IMPL_UNREACHABLE();
+#else
 #define KOKKOS_TEST_SKIP_IF_OPENACC()
+#endif
 
 #ifdef KOKKOS_ENABLE_NEXTSILICON  // FIXME_NEXTSILICON
 #define KOKKOS_TEST_SKIP_IF_NEXTSILICON()          \
@@ -42,7 +50,6 @@ namespace {
 #endif
 
 #define KOKKOS_TEST_SKIP_IF_NEEDED()             \
-  KOKKOS_TEST_SKIP_IF_OPENACC()                  \
   KOKKOS_TEST_SKIP_IF_SYCL_OUT_OF_ORDER_QUEUES() \
   KOKKOS_TEST_SKIP_IF_ATOMICS_BYPASS()           \
   KOKKOS_TEST_SKIP_IF_NEXTSILICON()              \
@@ -414,6 +421,5 @@ TEST(TEST_CATEGORY, exec_space_thread_safety_range_scan_different_sizes) {
 #undef KOKKOS_TEST_SKIP_IF_NEEDED
 #undef KOKKOS_TEST_SKIP_IF_ATOMICS_BYPASS
 #undef KOKKOS_TEST_SKIP_IF_SYCL_OUT_OF_ORDER_QUEUES
-#undef KOKKOS_TEST_SKIP_IF_OPENACC
 
 }  // namespace
