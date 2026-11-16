@@ -26,6 +26,8 @@ import kokkos.core;
     defined(KOKKOS_ENABLE_SYCL) || defined(KOKKOS_ENABLE_OPENACC) || \
     defined(KOKKOS_ENABLE_NEXTSILICON)
 #else
+// FIXME_OPENACC Check whether mathematical functions actually do have
+// long double overloads.
 #define MATHEMATICAL_FUNCTIONS_HAVE_LONG_DOUBLE_OVERLOADS
 #endif
 
